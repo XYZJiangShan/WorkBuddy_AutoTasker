@@ -12,11 +12,14 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QSplitter, QTextEdit, QFrame,
     QSystemTrayIcon, QMenu, QMessageBox, QScrollArea, QGridLayout,
     QFileIconProvider, QLineEdit, QGraphicsDropShadowEffect,
+    QDialog, QDialogButtonBox, QListWidget, QListWidgetItem,
+    QInputDialog, QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QMimeData, QPoint, QFileInfo, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QIcon, QFont, QColor, QAction, QPixmap, QPainter, QPen, QBrush, QDrag, QLinearGradient, QPainterPath
 
-from config_manager import load_tasks, save_tasks, load_settings, save_settings, new_task, new_action
+from config_manager import (load_tasks, save_tasks, load_settings, save_settings,
+                             new_task, new_action, load_groups, save_groups, new_group)
 from executor import TaskExecutor
 from scheduler import TaskScheduler
 from task_editor import TaskEditorDialog
@@ -647,10 +650,14 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.tasks: List[Dict] = load_tasks()
+        self.groups: List[Dict] = load_groups()
         self.settings = load_settings()
         self.selected_task_id: Optional[str] = None
         self._cards: Dict[str, TaskCard] = {}
         self._search_text = ""
+        # 记录每个分类的 grid layout，供拖拽使用
+        self._group_grids: Dict[str, QGridLayout] = {}
+        self._group_grid_ws: Dict[str, QWidget] = {}
 
         # 加载主题
         saved_theme = self.settings.get("theme", "nebula")
@@ -760,95 +767,28 @@ class MainWindow(QMainWindow):
         tb.addWidget(sec_label)
         tb.addStretch()
         tb.addWidget(self.btn_add)
+
+        # 分类管理按钮
+        self.btn_manage_groups = QPushButton("⚙  分类")
+        self.btn_manage_groups.setObjectName("btn_edit")
+        self.btn_manage_groups.setFixedHeight(34)
+        self.btn_manage_groups.clicked.connect(self._manage_groups)
+        tb.addWidget(self.btn_manage_groups)
         tl.addLayout(tb)
 
-        # 整个任务区用一个滚动区包裹
+        # 整个任务区用一个滚动区包裹（分类由 _refresh_grid 动态生成）
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setMinimumHeight(160)
         self.scroll.setStyleSheet("background:transparent;border:none;")
 
-        scroll_content = QWidget()
-        scroll_content.setStyleSheet("background:transparent;")
-        scroll_vl = QVBoxLayout(scroll_content)
-        scroll_vl.setContentsMargins(0, 4, 0, 8)
-        scroll_vl.setSpacing(0)
-
-        # ── 常用任务区 ──
-        self.pinned_section = QWidget()
-        self.pinned_section.setStyleSheet("background:transparent;")
-        ps_l = QVBoxLayout(self.pinned_section)
-        ps_l.setContentsMargins(0, 0, 0, 0)
-        ps_l.setSpacing(6)
-
-        pinned_header = QHBoxLayout()
-        pinned_lbl = QLabel("⭐  常用任务")
-        pinned_lbl.setStyleSheet(
-            f"font-size:12px;font-weight:bold;color:{C['accent']};background:transparent;")
-        self.pinned_count_lbl = QLabel("0 个")
-        self.pinned_count_lbl.setStyleSheet(
-            f"font-size:11px;color:{C['text2']};background:transparent;")
-        pinned_header.addWidget(pinned_lbl)
-        pinned_header.addWidget(self.pinned_count_lbl)
-        pinned_header.addStretch()
-        ps_l.addLayout(pinned_header)
-
-        self.pinned_grid_w = QWidget()
-        self.pinned_grid_w.setStyleSheet("background:transparent;")
-        self.pinned_grid_w.setAcceptDrops(True)
-        self.pinned_grid_w.dragEnterEvent = self._drag_enter
-        self.pinned_grid_w.dragMoveEvent  = self._drag_move
-        self.pinned_grid_w.dropEvent      = lambda e: self._drop(e, pinned=True)
-
-        self.pinned_grid_l = QGridLayout(self.pinned_grid_w)
-        self.pinned_grid_l.setContentsMargins(0, 2, 0, 4)
-        self.pinned_grid_l.setSpacing(10)
-        self.pinned_grid_l.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        ps_l.addWidget(self.pinned_grid_w)
-        scroll_vl.addWidget(self.pinned_section)
-
-        # 分隔线
-        self.section_divider = QFrame()
-        self.section_divider.setFrameShape(QFrame.Shape.HLine)
-        self.section_divider.setStyleSheet(
-            f"background-color:{C['border']};max-height:1px;margin:8px 0;border:none;")
-        scroll_vl.addWidget(self.section_divider)
-
-        # ── 其他任务区 ──
-        self.other_section = QWidget()
-        self.other_section.setStyleSheet("background:transparent;")
-        os_l = QVBoxLayout(self.other_section)
-        os_l.setContentsMargins(0, 0, 0, 0)
-        os_l.setSpacing(6)
-
-        other_header = QHBoxLayout()
-        other_lbl = QLabel("📋  其他任务")
-        other_lbl.setStyleSheet(
-            f"font-size:12px;font-weight:bold;color:{C['text2']};background:transparent;")
-        self.other_count_lbl = QLabel("0 个")
-        self.other_count_lbl.setStyleSheet(
-            f"font-size:11px;color:{C['text2']};background:transparent;")
-        other_header.addWidget(other_lbl)
-        other_header.addWidget(self.other_count_lbl)
-        other_header.addStretch()
-        os_l.addLayout(other_header)
-
-        self.other_grid_w = QWidget()
-        self.other_grid_w.setStyleSheet("background:transparent;")
-        self.other_grid_w.setAcceptDrops(True)
-        self.other_grid_w.dragEnterEvent = self._drag_enter
-        self.other_grid_w.dragMoveEvent  = self._drag_move
-        self.other_grid_w.dropEvent      = lambda e: self._drop(e, pinned=False)
-
-        self.other_grid_l = QGridLayout(self.other_grid_w)
-        self.other_grid_l.setContentsMargins(0, 2, 0, 4)
-        self.other_grid_l.setSpacing(10)
-        self.other_grid_l.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        os_l.addWidget(self.other_grid_w)
-        scroll_vl.addWidget(self.other_section)
-
-        scroll_vl.addStretch()
-        self.scroll.setWidget(scroll_content)
+        self.scroll_content = QWidget()
+        self.scroll_content.setStyleSheet("background:transparent;")
+        self.scroll_vl = QVBoxLayout(self.scroll_content)
+        self.scroll_vl.setContentsMargins(0, 4, 0, 8)
+        self.scroll_vl.setSpacing(0)
+        self.scroll_vl.addStretch()
+        self.scroll.setWidget(self.scroll_content)
         tl.addWidget(self.scroll)
         splitter.addWidget(top)
 
@@ -976,42 +916,88 @@ class MainWindow(QMainWindow):
             lambda r: self.show_window() if r == QSystemTrayIcon.ActivationReason.DoubleClick else None)
         self.tray.show()
 
-    # ── 网格刷新（两个分区）──
+
+    # ── 网格刷新（动态分类）──
     def _refresh_grid(self):
-        # 清空两个网格
-        for gl in [self.pinned_grid_l, self.other_grid_l]:
-            while gl.count():
-                w = gl.takeAt(0).widget()
-                if w: w.deleteLater()
+        # 清空 scroll_content（保留最后一个 stretch）
+        while self.scroll_vl.count() > 1:
+            item = self.scroll_vl.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
         self._cards.clear()
+        self._group_grids.clear()
+        self._group_grid_ws.clear()
 
         cols = max(1, (self.scroll.width() - 24) // (TaskCard.CARD_W + 10))
         filtered = [t for t in self.tasks
                     if self._search_text.lower() in t.get("name", "").lower()]
 
-        pinned_tasks = [t for t in filtered if t.get("pinned", False)]
-        other_tasks  = [t for t in filtered if not t.get("pinned", False)]
-
-        # 填入常用区
+        sorted_groups = sorted(self.groups, key=lambda g: g.get("order", 99))
         all_idx = 0
-        for i, task in enumerate(pinned_tasks):
-            color = _task_color(task, all_idx); all_idx += 1
-            card = self._make_card(task, color)
-            r, c = divmod(i, cols)
-            self.pinned_grid_l.addWidget(card, r, c)
+        prev_had_tasks = False
 
-        # 填入其他区
-        for i, task in enumerate(other_tasks):
-            color = _task_color(task, all_idx); all_idx += 1
-            card = self._make_card(task, color)
-            r, c = divmod(i, cols)
-            self.other_grid_l.addWidget(card, r, c)
+        for group in sorted_groups:
+            gid = group["id"]
+            group_tasks = [t for t in filtered if t.get("group_id", "default") == gid]
 
-        # 更新计数和分区可见性
-        self.pinned_count_lbl.setText(f"{len(pinned_tasks)} 个")
-        self.other_count_lbl.setText(f"{len(other_tasks)} 个")
-        self.pinned_section.setVisible(bool(pinned_tasks) or not self._search_text)
-        self.section_divider.setVisible(bool(pinned_tasks) and bool(other_tasks))
+            # 搜索时隐藏空分类
+            if self._search_text and not group_tasks:
+                continue
+
+            # 分隔线（第一个分类之后才加）
+            if prev_had_tasks or (not self._search_text and sorted_groups.index(group) > 0):
+                div = QFrame()
+                div.setFrameShape(QFrame.Shape.HLine)
+                div.setStyleSheet(
+                    f"background-color:{C['border']};max-height:1px;margin:6px 0;border:none;")
+                self.scroll_vl.insertWidget(self.scroll_vl.count() - 1, div)
+
+            # 分类 section widget
+            section = QWidget()
+            section.setStyleSheet("background:transparent;")
+            sec_l = QVBoxLayout(section)
+            sec_l.setContentsMargins(0, 0, 0, 0)
+            sec_l.setSpacing(4)
+
+            # 分类标题行
+            hdr = QHBoxLayout()
+            is_first = (group.get("order", 99) == 0)
+            lbl_color = C['accent'] if is_first else C['text2']
+            lbl = QLabel(f"{group.get('emoji','📁')}  {group.get('name','分类')}")
+            lbl.setStyleSheet(
+                f"font-size:12px;font-weight:bold;color:{lbl_color};background:transparent;")
+            cnt = QLabel(f"{len(group_tasks)} 个")
+            cnt.setStyleSheet(f"font-size:11px;color:{C['text2']};background:transparent;")
+            hdr.addWidget(lbl)
+            hdr.addWidget(cnt)
+            hdr.addStretch()
+            sec_l.addLayout(hdr)
+
+            # 卡片网格
+            grid_w = QWidget()
+            grid_w.setStyleSheet("background:transparent;")
+            grid_w.setAcceptDrops(True)
+            grid_w.dragEnterEvent = self._drag_enter
+            grid_w.dragMoveEvent  = self._drag_move
+            _gid = gid  # 闭包捕获
+            grid_w.dropEvent = lambda e, g=_gid: self._drop(e, group_id=g)
+            grid_l = QGridLayout(grid_w)
+            grid_l.setContentsMargins(0, 2, 0, 4)
+            grid_l.setSpacing(10)
+            grid_l.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+            for i, task in enumerate(group_tasks):
+                color = _task_color(task, all_idx); all_idx += 1
+                card = self._make_card(task, color)
+                r, c = divmod(i, cols)
+                grid_l.addWidget(card, r, c)
+
+            self._group_grids[gid] = grid_l
+            self._group_grid_ws[gid] = grid_w
+            sec_l.addWidget(grid_w)
+            self.scroll_vl.insertWidget(self.scroll_vl.count() - 1, section)
+            prev_had_tasks = bool(group_tasks)
 
         # 恢复选中
         if self.selected_task_id and self.selected_task_id in self._cards:
@@ -1029,12 +1015,15 @@ class MainWindow(QMainWindow):
 
     def _card_context_menu(self, task: Dict, global_pos):
         menu = QMenu(self)
-        is_pinned = task.get("pinned", False)
 
-        if is_pinned:
-            act_pin = menu.addAction("📋  移到其他任务区")
-        else:
-            act_pin = menu.addAction("⭐  加入常用任务区")
+        # 移动到分类子菜单
+        move_menu = menu.addMenu("📂  移动到分类")
+        current_gid = task.get("group_id", "default")
+        for g in sorted(self.groups, key=lambda x: x.get("order", 99)):
+            act = move_menu.addAction(f"{g.get('emoji','📁')}  {g['name']}")
+            if g["id"] == current_gid:
+                act.setEnabled(False)  # 当前分类置灰
+            act.setData(g["id"])
 
         menu.addSeparator()
         act_run   = menu.addAction("▶  立即执行")
@@ -1042,13 +1031,18 @@ class MainWindow(QMainWindow):
         act_edit  = menu.addAction("✏  编辑")
         menu.addSeparator()
         act_del   = menu.addAction("🗑  删除")
-        act_del.setEnabled(True)
 
         chosen = menu.exec(global_pos)
-        if chosen == act_pin:
-            task["pinned"] = not is_pinned
-            save_tasks(self.tasks)
-            self._refresh_grid()
+        if chosen is None:
+            return
+        if chosen.parent() is move_menu:
+            new_gid = chosen.data()
+            if new_gid and new_gid != current_gid:
+                task["group_id"] = new_gid
+                # 同步兼容 pinned 字段
+                task["pinned"] = (new_gid == "pinned")
+                save_tasks(self.tasks)
+                self._refresh_grid()
         elif chosen == act_run:
             self._select(task["id"])
             self._run_task()
@@ -1062,11 +1056,85 @@ class MainWindow(QMainWindow):
             self._select(task["id"])
             self._delete_task()
 
+    def _manage_groups(self):
+        """分类管理对话框"""
+        dlg = GroupManagerDialog(self.groups, parent=self)
+        if dlg.exec():
+            self.groups = dlg.get_groups()
+            save_groups(self.groups)
+            # 确保所有任务的 group_id 合法
+            valid_ids = {g["id"] for g in self.groups}
+            default_gid = self.groups[-1]["id"] if self.groups else "default"
+            for t in self.tasks:
+                if t.get("group_id", "default") not in valid_ids:
+                    t["group_id"] = default_gid
+            save_tasks(self.tasks)
+            self._refresh_grid()
+
     def _on_search(self, text: str):
         self._search_text = text
         self._refresh_grid()
 
-    # ── 主题切换 ──
+    # ── 拖拽排序 ──
+    def _drag_enter(self, e):
+        if e.mimeData().hasText() and e.mimeData().text().startswith("task_drag:"):
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def _drag_move(self, e):
+        if e.mimeData().hasText() and e.mimeData().text().startswith("task_drag:"):
+            e.acceptProposedAction()
+
+    def _drop(self, e, group_id: str = "default"):
+        text = e.mimeData().text()
+        if not text.startswith("task_drag:"):
+            e.ignore()
+            return
+        drag_id = text.split(":", 1)[1]
+        drag_task = self._get(drag_id)
+        if not drag_task:
+            e.acceptProposedAction()
+            return
+
+        # 跨分类拖拽
+        if drag_task.get("group_id", "default") != group_id:
+            drag_task["group_id"] = group_id
+            drag_task["pinned"] = (group_id == "pinned")
+            save_tasks(self.tasks)
+            self._refresh_grid()
+            self._select(drag_id)
+            e.acceptProposedAction()
+            return
+
+        # 同分区内排序
+        grid_w = self._group_grid_ws.get(group_id)
+        if not grid_w:
+            e.acceptProposedAction()
+            return
+        pos = e.position().toPoint()
+        target_id = None
+        for tid, card in self._cards.items():
+            t = self._get(tid)
+            if not t or t.get("group_id", "default") != group_id:
+                continue
+            cp = card.mapTo(grid_w, QPoint(0, 0))
+            if (cp.x() <= pos.x() <= cp.x() + card.width() and
+                    cp.y() <= pos.y() <= cp.y() + card.height()):
+                target_id = tid
+                break
+
+        if target_id and target_id != drag_id:
+            di = next((i for i, t in enumerate(self.tasks) if t["id"] == drag_id), None)
+            ti = next((i for i, t in enumerate(self.tasks) if t["id"] == target_id), None)
+            if di is not None and ti is not None:
+                task = self.tasks.pop(di)
+                self.tasks.insert(ti, task)
+                save_tasks(self.tasks)
+                self._refresh_grid()
+                self._select(drag_id)
+        e.acceptProposedAction()
+
     def _show_theme_menu(self):
         menu = QMenu(self)
         for key, theme in THEMES.items():
@@ -1127,48 +1195,6 @@ class MainWindow(QMainWindow):
     def _drag_move(self, e):
         if e.mimeData().hasText() and e.mimeData().text().startswith("task_drag:"):
             e.acceptProposedAction()
-
-    def _drop(self, e, pinned: bool = False):
-        text = e.mimeData().text()
-        if not text.startswith("task_drag:"):
-            e.ignore()
-            return
-        drag_id = text.split(":", 1)[1]
-
-        # 拖入不同分区时自动切换 pinned 状态
-        drag_task = self._get(drag_id)
-        if drag_task and drag_task.get("pinned", False) != pinned:
-            drag_task["pinned"] = pinned
-            save_tasks(self.tasks)
-            self._refresh_grid()
-            self._select(drag_id)
-            e.acceptProposedAction()
-            return
-
-        # 同分区内排序
-        grid_w = self.pinned_grid_w if pinned else self.other_grid_w
-        pos = e.position().toPoint()
-        target_id = None
-        for tid, card in self._cards.items():
-            t = self._get(tid)
-            if not t or t.get("pinned", False) != pinned:
-                continue
-            cp = card.mapTo(grid_w, QPoint(0, 0))
-            if (cp.x() <= pos.x() <= cp.x() + card.width() and
-                    cp.y() <= pos.y() <= cp.y() + card.height()):
-                target_id = tid
-                break
-
-        if target_id and target_id != drag_id:
-            di = next((i for i, t in enumerate(self.tasks) if t["id"] == drag_id), None)
-            ti = next((i for i, t in enumerate(self.tasks) if t["id"] == target_id), None)
-            if di is not None and ti is not None:
-                task = self.tasks.pop(di)
-                self.tasks.insert(ti, task)
-                save_tasks(self.tasks)
-                self._refresh_grid()
-                self._select(drag_id)
-        e.acceptProposedAction()
 
     # ── 主窗口文件拖放 ──
     def dragEnterEvent(self, e):
@@ -1413,3 +1439,175 @@ class MainWindow(QMainWindow):
     def _get(self, tid: Optional[str]) -> Optional[Dict]:
         if not tid: return None
         return next((t for t in self.tasks if t["id"] == tid), None)
+
+
+# ══════════════════════════════════════════════
+#  分类管理对话框
+# ══════════════════════════════════════════════
+EMOJI_OPTIONS = ["⭐", "📋", "🎨", "🛠", "🎮", "📁", "🚀", "🔧", "💡", "📦",
+                 "🌐", "🎬", "📷", "🖥", "🔥", "⚡", "🎯", "💻", "🗂", "📌"]
+
+class GroupManagerDialog(QDialog):
+    """分类管理：增加/删除/重命名/调整顺序"""
+
+    def __init__(self, groups: List[Dict], parent=None):
+        super().__init__(parent)
+        import copy
+        self._groups = copy.deepcopy(groups)
+        self.setWindowTitle("管理分类")
+        self.setMinimumSize(420, 380)
+        self.setModal(True)
+        if parent:
+            self.setStyleSheet(parent.styleSheet())
+        self._build()
+
+    def _build(self):
+        c = C
+        self.setStyleSheet(f"""
+            QDialog {{ background:{c['bg']}; color:{c['text']}; }}
+            QListWidget {{ background:{c['card']}; border:1px solid {c['border']};
+                border-radius:8px; color:{c['text']}; font-size:13px; outline:none; }}
+            QListWidget::item {{ padding:8px 12px; border-radius:6px; margin:1px 4px; }}
+            QListWidget::item:selected {{ background:{c['card_hover']}; color:{c['accent']}; }}
+            QPushButton {{ background:{c['card']}; color:{c['text2']}; border:1px solid {c['border']};
+                border-radius:7px; padding:6px 14px; font-size:12px; }}
+            QPushButton:hover {{ background:{c['card_hover']}; color:{c['text']}; border-color:{c['accent']}66; }}
+            QPushButton#btn_add {{ background:{c['accent2']}cc; color:#fff; border:none; font-weight:600; }}
+            QPushButton#btn_add:hover {{ background:{c['accent2']}; color:#fff; }}
+            QPushButton#btn_del {{ background:{c['danger']}22; color:{c['danger']}; border:1px solid {c['danger']}44; }}
+            QPushButton#btn_del:hover {{ background:{c['danger']}33; border-color:{c['danger']}88; }}
+            QLabel {{ color:{c['text']}; background:transparent; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
+
+        hint = QLabel("拖拽列表项可调整排序 · 双击重命名")
+        hint.setStyleSheet(f"color:{c['text2']};font-size:11px;")
+        layout.addWidget(hint)
+
+        self.list_w = QListWidget()
+        self.list_w.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        self.list_w.itemDoubleClicked.connect(self._rename_item)
+        layout.addWidget(self.list_w)
+        self._reload_list()
+
+        # 按钮行
+        btn_row = QHBoxLayout()
+        btn_add = QPushButton("＋  新增分类")
+        btn_add.setObjectName("btn_add")
+        btn_add.clicked.connect(self._add_group)
+
+        btn_rename = QPushButton("✏  重命名")
+        btn_rename.clicked.connect(self._rename_selected)
+
+        btn_emoji = QPushButton("😀  图标")
+        btn_emoji.clicked.connect(self._change_emoji)
+
+        btn_del = QPushButton("🗑  删除")
+        btn_del.setObjectName("btn_del")
+        btn_del.clicked.connect(self._del_group)
+
+        btn_row.addWidget(btn_add)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_rename)
+        btn_row.addWidget(btn_emoji)
+        btn_row.addWidget(btn_del)
+        layout.addLayout(btn_row)
+
+        # OK / Cancel
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.setStyleSheet(f"""
+            QPushButton {{ background:{c['card']}; color:{c['text']}; border:1px solid {c['border']};
+                border-radius:7px; padding:6px 18px; }}
+            QPushButton:hover {{ background:{c['card_hover']}; border-color:{c['accent']}66; }}
+            QPushButton[text="OK"], QPushButton[text="确定"] {{
+                background:{c['accent']}cc; color:#fff; border:none; font-weight:600; }}
+        """)
+        bb.accepted.connect(self._on_ok)
+        bb.rejected.connect(self.reject)
+        layout.addWidget(bb)
+
+    def _reload_list(self):
+        self.list_w.clear()
+        for g in self._groups:
+            item = QListWidgetItem(f"{g.get('emoji','📁')}  {g['name']}")
+            item.setData(Qt.ItemDataRole.UserRole, g["id"])
+            self.list_w.addItem(item)
+
+    def _add_group(self):
+        name, ok = QInputDialog.getText(self, "新增分类", "分类名称:")
+        if ok and name.strip():
+            g = new_group(name.strip(), "📁", len(self._groups))
+            self._groups.append(g)
+            self._reload_list()
+
+    def _rename_item(self, item: QListWidgetItem):
+        gid = item.data(Qt.ItemDataRole.UserRole)
+        g = next((x for x in self._groups if x["id"] == gid), None)
+        if not g:
+            return
+        name, ok = QInputDialog.getText(self, "重命名", "新名称:", text=g["name"])
+        if ok and name.strip():
+            g["name"] = name.strip()
+            self._reload_list()
+
+    def _rename_selected(self):
+        item = self.list_w.currentItem()
+        if item:
+            self._rename_item(item)
+
+    def _change_emoji(self):
+        item = self.list_w.currentItem()
+        if not item:
+            return
+        gid = item.data(Qt.ItemDataRole.UserRole)
+        g = next((x for x in self._groups if x["id"] == gid), None)
+        if not g:
+            return
+        emoji, ok = QInputDialog.getItem(
+            self, "选择图标", "选择分类图标:",
+            EMOJI_OPTIONS, EMOJI_OPTIONS.index(g.get("emoji","📁")) if g.get("emoji","📁") in EMOJI_OPTIONS else 5,
+            False
+        )
+        if ok:
+            g["emoji"] = emoji
+            self._reload_list()
+
+    def _del_group(self):
+        item = self.list_w.currentItem()
+        if not item:
+            return
+        gid = item.data(Qt.ItemDataRole.UserRole)
+        if len(self._groups) <= 1:
+            QMessageBox.warning(self, "无法删除", "至少保留一个分类")
+            return
+        g = next((x for x in self._groups if x["id"] == gid), None)
+        if not g:
+            return
+        ret = QMessageBox.question(
+            self, "删除分类",
+            f"确定删除「{g['name']}」？\n该分类中的任务将移入最后一个分类。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if ret == QMessageBox.StandardButton.Yes:
+            self._groups = [x for x in self._groups if x["id"] != gid]
+            self._reload_list()
+
+    def _on_ok(self):
+        # 按照列表当前顺序重新排序
+        order_map = {}
+        for i in range(self.list_w.count()):
+            item = self.list_w.item(i)
+            gid = item.data(Qt.ItemDataRole.UserRole)
+            order_map[gid] = i
+        for g in self._groups:
+            g["order"] = order_map.get(g["id"], 99)
+        self._groups.sort(key=lambda x: x["order"])
+        self.accept()
+
+    def get_groups(self) -> List[Dict]:
+        return self._groups
+
