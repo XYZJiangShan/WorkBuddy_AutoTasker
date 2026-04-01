@@ -69,103 +69,103 @@ def _fallback_icon(size: int = 32) -> QIcon:
     return QIcon(pm)
 
 # ══════════════════════════════════════════════
-#  主题系统
+#  主题系统（5套专业配色）
 # ══════════════════════════════════════════════
 THEMES = {
+    # ── 1. 暗夜（深邃宇宙，参考 Linear / VS Code Dark+）
     "nebula": {
-        "name": "星云",
+        "name": "暗夜",
         "emoji": "🌌",
-        "bg":         "#0d0e14",
-        "panel":      "#13141c",
-        "card":       "#1a1b26",
-        "card_hover": "#212236",
-        "border":     "#2a2c3e",
-        "accent":     "#7aa2f7",
-        "accent2":    "#9ece6a",
-        "danger":     "#f7768e",
-        "warn":       "#e0af68",
-        "text":       "#c0caf5",
-        "text2":      "#565f89",
-        "shortcut":   "#9ece6a",
-        "workflow":   "#7aa2f7",
-        "log_bg":     "#090a10",
-        "log_text":   "#a9b1d6",
+        "is_light":   False,
+        "bg":         "#111318",   # 近黑，略带蓝调
+        "panel":      "#1c1e26",   # 卡片/面板底色
+        "card":       "#22252f",
+        "card_hover": "#2a2e3a",
+        "border":     "#32374a",
+        "accent":     "#6d8ff5",   # 柔和蓝紫
+        "accent2":    "#56c9a0",   # 薄荷绿
+        "danger":     "#e05c6e",
+        "warn":       "#e8a644",
+        "text":       "#d4d8f0",
+        "text2":      "#5c6485",
+        "log_bg":     "#0c0e13",
+        "log_text":   "#9098c0",
     },
+    # ── 2. 深海（深蓝墨水，参考 Notion Dark / Raycast）
     "ocean": {
         "name": "深海",
         "emoji": "🌊",
-        "bg":         "#0a0f1e",
-        "panel":      "#0f1632",
-        "card":       "#162040",
-        "card_hover": "#1c2a50",
-        "border":     "#243258",
-        "accent":     "#4f9cf9",
-        "accent2":    "#2dd4bf",
+        "is_light":   False,
+        "bg":         "#0e1420",
+        "panel":      "#141d30",
+        "card":       "#1a2540",
+        "card_hover": "#1f2d4d",
+        "border":     "#273558",
+        "accent":     "#4b9cf5",   # 清澈蓝
+        "accent2":    "#38c9b8",   # 青绿
+        "danger":     "#e05a6b",
+        "warn":       "#e8a030",
+        "text":       "#c8d8f5",
+        "text2":      "#445a85",
+        "log_bg":     "#090e1a",
+        "log_text":   "#7090c8",
+    },
+    # ── 3. 石墨（中性暗灰，参考 Arc / Vercel Dashboard）
+    "graphite": {
+        "name": "石墨",
+        "emoji": "🪨",
+        "is_light":   False,
+        "bg":         "#141414",
+        "panel":      "#1c1c1c",
+        "card":       "#242424",
+        "card_hover": "#2c2c2c",
+        "border":     "#363636",
+        "accent":     "#a78bfa",   # 淡紫
+        "accent2":    "#34d399",   # 绿
         "danger":     "#f87171",
         "warn":       "#fbbf24",
-        "text":       "#dce8ff",
-        "text2":      "#4a6fa5",
-        "shortcut":   "#2dd4bf",
-        "workflow":   "#4f9cf9",
-        "log_bg":     "#060b16",
-        "log_text":   "#b0c8f0",
+        "text":       "#e2e2e2",
+        "text2":      "#6b6b6b",
+        "log_bg":     "#0e0e0e",
+        "log_text":   "#888888",
     },
-    "forest": {
-        "name": "原野",
-        "emoji": "🌲",
-        "bg":         "#0c110c",
-        "panel":      "#111711",
-        "card":       "#172217",
-        "card_hover": "#1d2e1d",
-        "border":     "#253325",
-        "accent":     "#40c074",
-        "accent2":    "#61afef",
-        "danger":     "#e06c75",
-        "warn":       "#e5c07b",
-        "text":       "#d8e8d0",
-        "text2":      "#4a7055",
-        "shortcut":   "#40c074",
-        "workflow":   "#61afef",
-        "log_bg":     "#080d08",
-        "log_text":   "#a8c8a0",
-    },
+    # ── 4. 曙光（浅色，参考 Figma / Linear Light）
     "dawn": {
         "name": "曙光",
         "emoji": "☀️",
-        "bg":         "#f5f6f8",
+        "is_light":   True,
+        "bg":         "#f4f5f7",   # 浅灰白
         "panel":      "#ffffff",
-        "card":       "#f0f2f6",
-        "card_hover": "#e8eaf2",
-        "border":     "#dde1ea",
-        "accent":     "#5a6ef0",
-        "accent2":    "#22c55e",
-        "danger":     "#dc2626",
+        "card":       "#ffffff",
+        "card_hover": "#f0f1f5",
+        "border":     "#e2e4ec",
+        "accent":     "#4f6ef7",   # 饱和蓝
+        "accent2":    "#10b981",   # 翠绿
+        "danger":     "#e53e3e",
         "warn":       "#d97706",
-        "text":       "#18191f",
-        "text2":      "#6b7485",
-        "shortcut":   "#16a34a",
-        "workflow":   "#5a6ef0",
-        "log_bg":     "#eef0f5",
-        "log_text":   "#2d3142",
+        "text":       "#1a1d2e",   # 深墨蓝字
+        "text2":      "#64748b",   # 灰蓝副文本
+        "log_bg":     "#f8f9fb",
+        "log_text":   "#374151",
     },
-    "dusk": {
-        "name": "晚霞",
+    # ── 5. 玫瑰（暗粉，参考 Obsidian Minimal / Bear）
+    "rose": {
+        "name": "玫瑰",
         "emoji": "🌸",
-        "bg":         "#110e12",
-        "panel":      "#1a1520",
-        "card":       "#221c28",
-        "card_hover": "#2a2232",
-        "border":     "#362a3e",
-        "accent":     "#e879a0",
-        "accent2":    "#fb923c",
-        "danger":     "#f87171",
+        "is_light":   False,
+        "bg":         "#13100f",
+        "panel":      "#1d1614",
+        "card":       "#261e1c",
+        "card_hover": "#2e2420",
+        "border":     "#3d2f2b",
+        "accent":     "#f472b6",   # 粉红
+        "accent2":    "#fb923c",   # 橙
+        "danger":     "#ef4444",
         "warn":       "#fbbf24",
-        "text":       "#f5e6f8",
-        "text2":      "#8b6a90",
-        "shortcut":   "#fb923c",
-        "workflow":   "#e879a0",
-        "log_bg":     "#0d0a0f",
-        "log_text":   "#d4b8e0",
+        "text":       "#f5e8e4",
+        "text2":      "#8a6a65",
+        "log_bg":     "#0e0b0a",
+        "log_text":   "#c4a09a",
     },
 }
 
@@ -190,8 +190,15 @@ C = get_theme()
 def build_style(c: dict) -> str:
     log_bg   = c.get("log_bg",   "#090a10")
     log_text = c.get("log_text", "#a9b1d6")
-    is_light = c.get("bg", "#0").startswith("#f")
-    card_shadow = "none" if is_light else "none"
+    is_light = c.get("is_light", False)
+    # 浅色主题时按钮用深字，暗色用浅字
+    btn_text  = c['text']
+    btn_text2 = c['text2']
+    # 执行/新建按钮文字固定白色（背景是深色 accent）
+    btn_on_accent = "#ffffff"
+    # 浅色主题阴影
+    card_shadow = ("0 1px 4px rgba(0,0,0,.08)" if is_light
+                   else "none")
     return f"""
 QMainWindow, QWidget {{
     background-color: {c['bg']};
@@ -208,7 +215,6 @@ QTextEdit#log_view {{
     padding: 10px 14px;
     font-family: "Consolas", "JetBrains Mono", monospace;
     font-size: 12px;
-    line-height: 1.7;
     selection-background-color: {c['accent']}55;
     selection-color: {c['text']};
 }}
@@ -235,7 +241,7 @@ QSplitter::handle:horizontal {{ width: 1px; }}
 /* 通用按钮 */
 QPushButton {{
     background-color: {c['card']};
-    color: {c['text2']};
+    color: {btn_text};
     border: 1px solid {c['border']};
     border-radius: 8px;
     padding: 7px 16px;
@@ -256,22 +262,21 @@ QPushButton:disabled {{ color: {c['text2']}55; border-color: {c['card']}; backgr
 QPushButton#btn_run {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
         stop:0 {c['accent']}ee, stop:1 {c['accent']}aa);
-    color: #ffffff;
+    color: {btn_on_accent};
     border: none;
     border-radius: 10px;
     font-weight: 700;
-    font-size: 14px;
-    padding: 10px 28px;
-    letter-spacing: 0.3px;
+    font-size: 13px;
+    padding: 8px 22px;
 }}
 QPushButton#btn_run:hover {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
         stop:0 {c['accent']}, stop:1 {c['accent']}cc);
-    color: #ffffff;
+    color: {btn_on_accent};
 }}
 QPushButton#btn_run:pressed {{
     background: {c['accent']}99;
-    color: #ffffff;
+    color: {btn_on_accent};
 }}
 QPushButton#btn_run:disabled {{
     background: {c['card']};
@@ -280,15 +285,15 @@ QPushButton#btn_run:disabled {{
 /* 新建按钮 */
 QPushButton#btn_add {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {c['accent2']}ee, stop:1 {c['accent2']}aa);
-    color: #ffffff;
+        stop:0 {c['accent2']}ee, stop:1 {c['accent2']}99);
+    color: {btn_on_accent};
     border: none;
     border-radius: 8px;
     font-weight: 600;
 }}
 QPushButton#btn_add:hover {{
     background: {c['accent2']};
-    color: #ffffff;
+    color: {btn_on_accent};
 }}
 /* 删除按钮 */
 QPushButton#btn_delete {{
@@ -304,20 +309,20 @@ QPushButton#btn_delete:hover {{
 QPushButton#btn_delete:disabled {{ color: {c['text2']}33; border-color: transparent; }}
 /* 编辑按钮 */
 QPushButton#btn_edit {{
-    background-color: transparent;
-    color: {c['text2']};
+    background-color: {c['card']};
+    color: {btn_text2};
     border: 1px solid {c['border']};
 }}
 QPushButton#btn_edit:hover {{
     color: {c['text']};
     border-color: {c['accent']}66;
-    background-color: {c['card']};
+    background-color: {c['card_hover']};
 }}
 QPushButton#btn_edit:disabled {{ color: {c['text2']}33; border-color: transparent; }}
 /* 主题按钮 */
 QPushButton#btn_theme {{
     background-color: transparent;
-    color: {c['text2']};
+    color: {btn_text2};
     border: 1px solid {c['border']};
     border-radius: 8px;
     padding: 6px 10px;
@@ -374,6 +379,42 @@ QMenu::separator {{
 QMessageBox {{
     background-color: {c['panel']};
     color: {c['text']};
+}}
+/* ListWidget（分类管理）*/
+QListWidget {{
+    background-color: {c['card']};
+    color: {c['text']};
+    border: 1px solid {c['border']};
+    border-radius: 8px;
+    outline: none;
+}}
+QListWidget::item {{
+    padding: 8px 12px;
+    border-radius: 6px;
+}}
+QListWidget::item:selected {{
+    background-color: {c['card_hover']};
+    color: {c['accent']};
+}}
+/* 输入框（通用）*/
+QLineEdit {{
+    background-color: {c['card']};
+    color: {c['text']};
+    border: 1px solid {c['border']};
+    border-radius: 6px;
+    padding: 5px 10px;
+}}
+QLineEdit:focus {{
+    border-color: {c['accent']};
+}}
+/* 对话框 */
+QDialog {{
+    background-color: {c['bg']};
+    color: {c['text']};
+}}
+/* DialogButtonBox */
+QDialogButtonBox QPushButton {{
+    min-width: 72px;
 }}
 """
 
@@ -726,6 +767,7 @@ class MainWindow(QMainWindow):
 
         # ═══ Header ═══
         header = QWidget()
+        self._header_widget = header
         header.setFixedHeight(56)
         header.setStyleSheet(f"background-color:{C['panel']};border-bottom:1px solid {C['border']};")
         hl = QHBoxLayout(header)
@@ -740,6 +782,7 @@ class MainWindow(QMainWindow):
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo.setStyleSheet("background:transparent;")
         title = QLabel("AutoTasker")
+        self._title_lbl = title
         title.setStyleSheet(f"font-size:17px;font-weight:bold;color:{C['text']};background:transparent;letter-spacing:0.5px;")
 
         # 搜索框
@@ -772,6 +815,7 @@ class MainWindow(QMainWindow):
 
         # ═══ 主体 ═══
         body = QWidget()
+        self._body_widget = body
         body.setStyleSheet(f"background-color:{C['bg']};")
         bl = QVBoxLayout(body)
         bl.setContentsMargins(20, 16, 20, 16)
@@ -1241,37 +1285,47 @@ class MainWindow(QMainWindow):
 
     def _apply_theme(self, theme_key: str):
         set_theme(theme_key)
-        # 保存设置
         self.settings["theme"] = theme_key
         save_settings(self.settings)
-        # 重新应用样式
-        new_style = build_style(C)
-        self.setStyleSheet(new_style)
-        # 更新 header 背景
-        self._refresh_header_style()
-        # 刷新详情面板和日志
-        self._refresh_panel_styles()
-        # 刷新卡片网格（颜色可能变化）
+        # 全局样式表
+        self.setStyleSheet(build_style(C))
+        # 重新刷新所有内联样式
+        self._refresh_all_dynamic_styles()
         self._refresh_grid()
 
-    def _refresh_header_style(self):
-        """更新 header 等固定样式组件"""
-        # header 背景
-        for child in self.findChildren(QWidget):
-            if hasattr(child, 'objectName'):
-                pass  # Qt 的 setStyleSheet 已经级联更新了
-        # 单独更新 status_lbl 颜色
+    def _refresh_all_dynamic_styles(self):
+        """刷新所有用内联 setStyleSheet 写死颜色的组件"""
+        # Header
+        if hasattr(self, '_header_widget'):
+            self._header_widget.setStyleSheet(
+                f"background-color:{C['panel']};border-bottom:1px solid {C['border']};")
+        if hasattr(self, '_body_widget'):
+            self._body_widget.setStyleSheet(f"background-color:{C['bg']};")
+        # 标题文字
+        if hasattr(self, '_title_lbl'):
+            self._title_lbl.setStyleSheet(
+                f"font-size:17px;font-weight:bold;color:{C['text']};background:transparent;letter-spacing:0.5px;")
+        # 状态标签
         self.status_lbl.setStyleSheet(
             f"color:{C['text2']};font-size:12px;background:transparent;")
-
-    def _refresh_panel_styles(self):
-        """更新详情面板等动态颜色组件"""
+        # 底部操作栏
         self.detail_panel.setStyleSheet(
             f"background-color:{C['panel']};border:1px solid {C['border']};border-radius:12px;")
         self.detail_name.setStyleSheet(
-            f"font-size:15px;font-weight:bold;color:{C['text']};background:transparent;")
+            f"font-size:14px;font-weight:bold;color:{C['text']};background:transparent;")
         self.detail_steps.setStyleSheet(
             f"font-size:11px;color:{C['text2']};background:transparent;")
+        # 清空按钮
+        if hasattr(self, 'btn_clear'):
+            self.btn_clear.setStyleSheet(
+                f"font-size:11px;padding:0;background:{C['card']};border:1px solid {C['border']};"
+                f"border-radius:5px;color:{C['text2']};")
+
+    def _refresh_header_style(self):
+        self._refresh_all_dynamic_styles()
+
+    def _refresh_panel_styles(self):
+        self._refresh_all_dynamic_styles()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
