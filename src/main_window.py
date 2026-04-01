@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QListWidget, QListWidgetItem,
     QInputDialog, QComboBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QMimeData, QPoint, QFileInfo, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QMimeData, QPoint, QFileInfo, QPropertyAnimation, QEasingCurve, QRectF
 from PyQt6.QtGui import QIcon, QFont, QColor, QAction, QPixmap, QPainter, QPen, QBrush, QDrag, QLinearGradient, QPainterPath
 
 from config_manager import (load_tasks, save_tasks, load_settings, save_settings,
@@ -407,69 +407,131 @@ def _task_color(task, idx):
 # ══════════════════════════════════════════════
 _icon_provider = None
 
-def _get_file_icon(file_path: str, bg_color: str, size: int = 60) -> Optional[QPixmap]:
+def _get_file_icon_raw(file_path: str, size: int = 52) -> Optional[QPixmap]:
+    """从文件获取系统图标，直接裁圆角，不加底色，返回 None 表示获取失败"""
     global _icon_provider
     if _icon_provider is None:
         _icon_provider = QFileIconProvider()
     if not os.path.exists(file_path):
         return None
     try:
-        icon_size = size - 14
         info = QFileInfo(file_path)
-        # 先请求大尺寸，再强制缩放，避免小图标留白
         raw = _icon_provider.icon(info).pixmap(QSize(256, 256))
         if raw.isNull():
             return None
-        # 强制缩放到 icon_size × icon_size，填满，不保留比例（系统图标通常是方形的）
-        raw = raw.scaled(icon_size, icon_size,
+        raw = raw.scaled(size, size,
                          Qt.AspectRatioMode.IgnoreAspectRatio,
                          Qt.TransformationMode.SmoothTransformation)
-
-        bg = QPixmap(size, size)
-        bg.fill(Qt.GlobalColor.transparent)
-        p = QPainter(bg)
+        # 裁成圆角
+        result = QPixmap(size, size)
+        result.fill(Qt.GlobalColor.transparent)
+        p = QPainter(result)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(QBrush(QColor(bg_color)))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(0, 0, size, size, 14, 14)
-        ox = (size - raw.width()) // 2
-        oy = (size - raw.height()) // 2
-        p.drawPixmap(ox, oy, raw)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, size, size), size * 0.2, size * 0.2)
+        p.setClipPath(path)
+        p.drawPixmap(0, 0, raw)
         p.end()
-        return bg
+        return result
     except Exception:
         return None
 
-def _letter_icon(letter: str, color: str, size: int = 60) -> QPixmap:
+def _letter_icon(letter: str, color: str, size: int = 52) -> QPixmap:
+    """纯文字图标，绘制渐变底色+首字母"""
     pm = QPixmap(size, size)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    # 渐变背景
     grad = QLinearGradient(0, 0, size, size)
     base = QColor(color)
-    light = base.lighter(130)
-    grad.setColorAt(0, light)
+    grad.setColorAt(0, base.lighter(140))
     grad.setColorAt(1, base)
     p.setBrush(QBrush(grad))
     p.setPen(Qt.PenStyle.NoPen)
-    p.drawRoundedRect(0, 0, size, size, 14, 14)
+    r = size * 0.22
+    p.drawRoundedRect(QRectF(0, 0, size, size), r, r)
     p.setPen(QPen(QColor("#ffffff")))
-    f = QFont("Microsoft YaHei UI", size // 3, QFont.Weight.Bold)
+    f = QFont("Microsoft YaHei UI", max(size // 3, 10), QFont.Weight.Bold)
     p.setFont(f)
-    p.drawText(0, 0, size, size, Qt.AlignmentFlag.AlignCenter, letter.upper()[:1])
+    p.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, letter.upper()[:1])
     p.end()
     return pm
 
-def _task_icon(task: Dict, color: str, size: int = 60) -> QPixmap:
+def _task_icon_info(task: Dict, color: str, size: int = 52):
+    """返回 (pixmap, has_real_icon)。有真实图标时 has_real_icon=True"""
+    # 优先使用任务自定义图标
+    custom = task.get("custom_icon", "").strip()
+    if custom:
+        if custom.startswith("builtin:"):
+            key = custom.split(":", 1)[1]
+            return _builtin_icon_pixmap(key, color, size), True
+        elif os.path.exists(custom):
+            pm = _get_file_icon_raw(custom, size)
+            if pm:
+                return pm, True
+
+    # 从 action 路径提取
     for a in task.get("actions", []):
         path = (a.get("exe_path") or a.get("uproject_path") or a.get("path") or "").strip()
         if path:
-            pm = _get_file_icon(path, color, size)
+            pm = _get_file_icon_raw(path, size)
             if pm:
-                return pm
+                return pm, True
+
+    # 回退到文字图标
     name = task.get("name", "?")
-    return _letter_icon(name[0] if name else "?", color, size)
+    return _letter_icon(name[0] if name else "?", color, size), False
+
+def _task_icon(task: Dict, color: str, size: int = 52) -> QPixmap:
+    pm, _ = _task_icon_info(task, color, size)
+    return pm
+
+# 内置图标关键字列表（用于右键选择）
+BUILTIN_ICONS = [
+    ("⚡ 闪电", "lightning"),
+    ("🔧 工具", "wrench"),
+    ("🎨 画笔", "palette"),
+    ("🎮 游戏", "game"),
+    ("📁 文件夹", "folder"),
+    ("🚀 火箭", "rocket"),
+    ("💻 代码", "code"),
+    ("🔥 火焰", "fire"),
+    ("⚙ 齿轮", "gear"),
+    ("🌐 网络", "web"),
+    ("📦 包裹", "package"),
+    ("🎬 视频", "video"),
+]
+
+def _builtin_icon_pixmap(key: str, color: str, size: int = 52) -> QPixmap:
+    """绘制内置图标（基于 emoji 文字渲染）"""
+    emoji_map = {
+        "lightning": "⚡", "wrench": "🔧", "palette": "🎨",
+        "game": "🎮", "folder": "📁", "rocket": "🚀",
+        "code": "💻", "fire": "🔥", "gear": "⚙",
+        "web": "🌐", "package": "📦", "video": "🎬",
+    }
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    # 渐变底色
+    grad = QLinearGradient(0, 0, size, size)
+    base = QColor(color)
+    grad.setColorAt(0, base.lighter(130))
+    grad.setColorAt(1, base)
+    p.setBrush(QBrush(grad))
+    p.setPen(Qt.PenStyle.NoPen)
+    r = size * 0.22
+    p.drawRoundedRect(QRectF(0, 0, size, size), r, r)
+    # emoji
+    emoji = emoji_map.get(key, "📁")
+    f = QFont("Segoe UI Emoji", max(size // 2, 12))
+    p.setFont(f)
+    p.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, emoji)
+    p.end()
+    return pm
+
+
 
 
 # ══════════════════════════════════════════════
@@ -479,7 +541,8 @@ class TaskCard(QWidget):
     clicked = pyqtSignal(str)
     double_clicked = pyqtSignal(str)
 
-    CARD_W, CARD_H = 120, 134
+    CARD_W, CARD_H = 90, 104
+    ICON_SIZE = 52
 
     def __init__(self, task: Dict, color: str, parent=None):
         super().__init__(parent)
@@ -489,6 +552,7 @@ class TaskCard(QWidget):
         self._selected = False
         self._hovered = False
         self._drag_start = QPoint()
+        self._has_real_icon = False
         self.setFixedSize(self.CARD_W, self.CARD_H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover)
@@ -496,58 +560,38 @@ class TaskCard(QWidget):
 
     def _build(self, task: Dict):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 10, 8, 8)
-        layout.setSpacing(5)
+        layout.setContentsMargins(6, 8, 6, 6)
+        layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         name = task.get("name", "?")
-        actions = task.get("actions", [])
-        first_type = actions[0].get("type", "") if actions else ""
 
         # 图标
+        pm, has_real = _task_icon_info(task, self.color, self.ICON_SIZE)
+        self._has_real_icon = has_real
         self.icon_lbl = QLabel()
-        self.icon_lbl.setFixedSize(60, 60)
+        self.icon_lbl.setFixedSize(self.ICON_SIZE, self.ICON_SIZE)
         self.icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.icon_lbl.setPixmap(_task_icon(task, self.color, 60))
+        self.icon_lbl.setStyleSheet("background:transparent;")
+        self.icon_lbl.setPixmap(pm)
 
         # 任务名
         self.name_lbl = QLabel(name)
         self.name_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.name_lbl.setWordWrap(True)
-        self.name_lbl.setStyleSheet(f"color:{C['text']};font-size:11px;background:transparent;")
-        self.name_lbl.setMaximumWidth(108)
-        self.name_lbl.setMaximumHeight(36)
-
-        # 状态行
-        enabled = task.get("enabled", True)
-        sched = task.get("schedule")
-        parts = []
-        if not enabled: parts.append("禁用")
-        if sched: parts.append("⏰")
-        self.status_lbl = QLabel("  ".join(parts))
-        self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.status_lbl.setStyleSheet(f"color:{C['text2']};font-size:10px;background:transparent;")
+        self.name_lbl.setStyleSheet(f"color:{C['text']};font-size:10px;background:transparent;")
+        self.name_lbl.setMaximumWidth(self.CARD_W - 8)
+        self.name_lbl.setMaximumHeight(30)
 
         layout.addWidget(self.icon_lbl, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.name_lbl)
-        layout.addWidget(self.status_lbl)
-
-        # 右上角类型徽标
-        self._badge_type = first_type
-        self._badge_text = TYPE_BADGE.get(first_type, "")
-        self._badge_color = TYPE_BADGE_COLOR.get(first_type, C['text2'])
-        self._type_label = "快捷" if self.is_shortcut else "流程"
-        self._type_color = C['shortcut'] if self.is_shortcut else C['workflow']
 
     def update_task(self, task: Dict):
-        self.icon_lbl.setPixmap(_task_icon(task, self.color, 60))
+        pm, has_real = _task_icon_info(task, self.color, self.ICON_SIZE)
+        self._has_real_icon = has_real
+        self.icon_lbl.setPixmap(pm)
         self.name_lbl.setText(task.get("name", "?"))
-        enabled = task.get("enabled", True)
-        sched = task.get("schedule")
-        parts = []
-        if not enabled: parts.append("禁用")
-        if sched: parts.append("⏰")
-        self.status_lbl.setText("  ".join(parts))
+        self.update()
 
     def set_selected(self, v: bool):
         self._selected = v
@@ -557,54 +601,45 @@ class TaskCard(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
-        r = 12
+        r = 11
 
-        # 卡片背景
-        if self._selected:
-            bg = QColor(C['card_hover'])
-        elif self._hovered:
-            bg = QColor(C['card']).lighter(115)
+        if self._has_real_icon:
+            # 有真实图标：悬停/选中时才画淡底色
+            if self._selected:
+                p.setBrush(QBrush(QColor(C['accent'] + "22")))
+                p.setPen(QPen(QColor(C['accent']), 2))
+                p.drawRoundedRect(1, 1, w-2, h-2, r, r)
+            elif self._hovered:
+                p.setBrush(QBrush(QColor(C['card'])))
+                p.setPen(QPen(QColor(C['border']).lighter(140), 1))
+                p.drawRoundedRect(1, 1, w-2, h-2, r, r)
+            # 默认状态：完全透明，不画任何背景
         else:
-            bg = QColor(C['card'])
-        p.setBrush(QBrush(bg))
+            # 纯文字图标：始终画卡片背景
+            if self._selected:
+                bg = QColor(C['card_hover'])
+            elif self._hovered:
+                bg = QColor(C['card']).lighter(115)
+            else:
+                bg = QColor(C['card'])
+            p.setBrush(QBrush(bg))
+            if self._selected:
+                p.setPen(QPen(QColor(C['accent']), 2))
+            elif self._hovered:
+                p.setPen(QPen(QColor(C['border']).lighter(140), 1))
+            else:
+                p.setPen(QPen(QColor(C['border']), 1))
+            p.drawRoundedRect(1, 1, w-2, h-2, r, r)
 
-        # 边框
+        # 选中时底部光条
         if self._selected:
-            p.setPen(QPen(QColor(C['accent']), 2))
-        elif self._hovered:
-            p.setPen(QPen(QColor(C['border']).lighter(140), 1))
-        else:
-            p.setPen(QPen(QColor(C['border']), 1))
-
-        p.drawRoundedRect(1, 1, w-2, h-2, r, r)
-
-        # 选中时底部彩色光条
-        if self._selected:
-            grad = QLinearGradient(0, h-4, w, h-4)
+            grad = QLinearGradient(0, h-3, w, h-3)
             grad.setColorAt(0, QColor(C['accent'] + "00"))
             grad.setColorAt(0.5, QColor(C['accent']))
             grad.setColorAt(1, QColor(C['accent'] + "00"))
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(grad))
-            p.drawRoundedRect(8, h-4, w-16, 4, 2, 2)
-
-        # 右上角类型徽标
-        if self._badge_text:
-            badge_c = QColor(self._badge_color)
-            badge_bg = QColor(badge_c)
-            badge_bg.setAlpha(40)
-            fm_rect = p.fontMetrics().boundingRect(self._badge_text)
-            bw = fm_rect.width() + 10
-            bh = 16
-            bx = w - bw - 6
-            by = 6
-            p.setBrush(QBrush(badge_bg))
-            p.setPen(QPen(badge_c, 1))
-            p.drawRoundedRect(bx, by, bw, bh, 4, 4)
-            p.setPen(QPen(badge_c))
-            f = QFont("Microsoft YaHei UI", 8, QFont.Weight.Bold)
-            p.setFont(f)
-            p.drawText(bx, by, bw, bh, Qt.AlignmentFlag.AlignCenter, self._badge_text)
+            p.drawRoundedRect(6, h-3, w-12, 3, 2, 2)
 
         p.end()
 
@@ -620,6 +655,8 @@ class TaskCard(QWidget):
         if e.button() == Qt.MouseButton.LeftButton:
             self._drag_start = e.position().toPoint()
             self.clicked.emit(self.task_id)
+
+
 
     def mouseMoveEvent(self, e):
         if not (e.buttons() & Qt.MouseButton.LeftButton):
@@ -1036,8 +1073,19 @@ class MainWindow(QMainWindow):
         for g in sorted(self.groups, key=lambda x: x.get("order", 99)):
             act = move_menu.addAction(f"{g.get('emoji','📁')}  {g['name']}")
             if g["id"] == current_gid:
-                act.setEnabled(False)  # 当前分类置灰
+                act.setEnabled(False)
             act.setData(g["id"])
+
+        # 设置图标子菜单（总是显示）
+        icon_menu = menu.addMenu("🖼  设置图标")
+        for label, key in BUILTIN_ICONS:
+            a = icon_menu.addAction(label)
+            a.setData(f"builtin:{key}")
+        icon_menu.addSeparator()
+        act_local_icon = icon_menu.addAction("📁  从本地文件选择...")
+        act_local_icon.setData("local")
+        act_clear_icon = icon_menu.addAction("✕  清除自定义图标")
+        act_clear_icon.setData("clear")
 
         menu.addSeparator()
         act_run   = menu.addAction("▶  立即执行")
@@ -1053,10 +1101,22 @@ class MainWindow(QMainWindow):
             new_gid = chosen.data()
             if new_gid and new_gid != current_gid:
                 task["group_id"] = new_gid
-                # 同步兼容 pinned 字段
                 task["pinned"] = (new_gid == "pinned")
                 save_tasks(self.tasks)
                 self._refresh_grid()
+        elif chosen.parent() is icon_menu:
+            data = chosen.data()
+            if data == "local":
+                self._pick_local_icon(task)
+            elif data == "clear":
+                task["custom_icon"] = ""
+                save_tasks(self.tasks)
+                self._refresh_card(task)
+            elif data and data.startswith("builtin:"):
+                key = data.split(":", 1)[1]
+                task["custom_icon"] = f"builtin:{key}"
+                save_tasks(self.tasks)
+                self._refresh_card(task)
         elif chosen == act_run:
             self._select(task["id"])
             self._run_task()
@@ -1069,6 +1129,26 @@ class MainWindow(QMainWindow):
         elif chosen == act_del:
             self._select(task["id"])
             self._delete_task()
+
+    def _pick_local_icon(self, task: Dict):
+        """弹出文件选择器选择本地图标"""
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择图标文件", "",
+            "图片/程序 (*.png *.jpg *.ico *.exe *.lnk);;所有文件 (*)"
+        )
+        if path:
+            task["custom_icon"] = path
+            save_tasks(self.tasks)
+            self._refresh_card(task)
+
+    def _refresh_card(self, task: Dict):
+        """刷新单张卡片图标，不重建整个网格"""
+        card = self._cards.get(task["id"])
+        if card:
+            card.update_task(task)
+
+
 
     def _manage_groups(self):
         """分类管理对话框"""
