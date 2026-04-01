@@ -1,0 +1,31 @@
+# PyInstaller 构建产物
+dist/
+build/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+.eggs/
+
+# 虚拟环境
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 用户配置（包含密码，不上传）
+# 任务配置在 %APPDATA%\AutoTasker\ 不在项目里，无需忽略
+
+# 系统文件
+Thumbs.db
+.DS_Store
+desktop.ini
