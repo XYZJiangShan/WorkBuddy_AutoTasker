@@ -975,10 +975,11 @@ class MainWindow(QMainWindow):
             act_pin = menu.addAction("⭐  加入常用任务区")
 
         menu.addSeparator()
-        act_run  = menu.addAction("▶  立即执行")
-        act_edit = menu.addAction("✏  编辑")
+        act_run   = menu.addAction("▶  立即执行")
+        act_admin = menu.addAction("🛡  以管理员身份运行")
+        act_edit  = menu.addAction("✏  编辑")
         menu.addSeparator()
-        act_del  = menu.addAction("🗑  删除")
+        act_del   = menu.addAction("🗑  删除")
         act_del.setEnabled(True)
 
         chosen = menu.exec(global_pos)
@@ -989,6 +990,9 @@ class MainWindow(QMainWindow):
         elif chosen == act_run:
             self._select(task["id"])
             self._run_task()
+        elif chosen == act_admin:
+            self._select(task["id"])
+            self._run_task_as_admin(task)
         elif chosen == act_edit:
             self._select(task["id"])
             self._edit_task()
@@ -1249,6 +1253,24 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._run_done)
 
         self.executor.execute_task(task, on_done=done, async_run=True)
+
+    def _run_task_as_admin(self, task: Optional[Dict] = None):
+        """以管理员身份运行选中任务（仅对 open_software / open_path / run_command 生效）"""
+        if task is None:
+            task = self._get(self.selected_task_id)
+        if not task:
+            return
+        self.btn_run.setEnabled(False)
+        self.btn_run.setText("执行中...")
+        self.status_lbl.setText(f"🛡  {task.get('name')}")
+
+        def done(ok, msg):
+            task["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            task["last_result"] = "成功" if ok else "有失败步骤"
+            save_tasks(self.tasks)
+            QTimer.singleShot(0, self._run_done)
+
+        self.executor.execute_task(task, on_done=done, async_run=True, as_admin=True)
 
     def _run_done(self):
         self.btn_run.setEnabled(True)

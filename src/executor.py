@@ -2,6 +2,7 @@
 任务执行引擎 - 负责实际执行各类操作
 """
 import os
+import ctypes
 import glob
 import subprocess
 import threading
@@ -30,17 +31,17 @@ class TaskExecutor:
         self.log_callback(msg)
 
     # ---- 单个 Action 执行 ----
-    def execute_action(self, action: Dict[str, Any]) -> ActionResult:
+    def execute_action(self, action: Dict[str, Any], as_admin: bool = False) -> ActionResult:
         atype = action.get("type", "")
         label = action.get("label") or atype
 
         try:
             if atype == "open_software":
-                return self._open_software(action, label)
+                return self._open_software(action, label, as_admin=as_admin)
             elif atype == "open_path":
-                return self._open_path(action, label)
+                return self._open_path(action, label, as_admin=as_admin)
             elif atype == "run_command":
-                return self._run_command(action, label)
+                return self._run_command(action, label, as_admin=as_admin)
             elif atype == "p4_sync":
                 return self._p4_sync(action, label)
             elif atype == "ue_project":
@@ -50,30 +51,57 @@ class TaskExecutor:
         except Exception as e:
             return ActionResult(False, f"{label} 执行异常: {e}")
 
-    def _open_software(self, action: Dict, label: str) -> ActionResult:
+    def _open_software(self, action: Dict, label: str, as_admin: bool = False) -> ActionResult:
         exe_path = action.get("exe_path", "").strip()
         args = action.get("args", "").strip()
         if not exe_path:
             return ActionResult(False, f"[{label}] 未配置程序路径")
+        if as_admin:
+            try:
+                # ShellExecute runas 会弹出 UAC 提权窗口
+                ctypes.windll.shell32.ShellExecuteW(
+                    None, "runas", exe_path, args or None, None, 1
+                )
+                return ActionResult(True, f"[{label}] 已以管理员身份启动: {os.path.basename(exe_path)}")
+            except Exception as ex:
+                return ActionResult(False, f"[{label}] 管理员启动失败: {ex}")
         cmd = f'"{exe_path}"'
         if args:
             cmd += f" {args}"
         subprocess.Popen(cmd, shell=True)
         return ActionResult(True, f"[{label}] 已启动: {os.path.basename(exe_path)}")
 
-    def _open_path(self, action: Dict, label: str) -> ActionResult:
+    def _open_path(self, action: Dict, label: str, as_admin: bool = False) -> ActionResult:
         path = action.get("path", "").strip()
         if not path:
             return ActionResult(False, f"[{label}] 未配置路径")
+        if as_admin and os.path.isfile(path):
+            try:
+                ctypes.windll.shell32.ShellExecuteW(None, "runas", path, None, None, 1)
+                return ActionResult(True, f"[{label}] 已以管理员身份打开: {path}")
+            except Exception as ex:
+                return ActionResult(False, f"[{label}] 管理员打开失败: {ex}")
         os.startfile(path)
         return ActionResult(True, f"[{label}] 已打开: {path}")
 
-    def _run_command(self, action: Dict, label: str) -> ActionResult:
+    def _run_command(self, action: Dict, label: str, as_admin: bool = False) -> ActionResult:
         command = action.get("command", "").strip()
         working_dir = action.get("working_dir", "").strip() or None
         use_shell = action.get("shell", True)
         if not command:
             return ActionResult(False, f"[{label}] 未配置命令")
+
+        if as_admin:
+            # 以管理员身份在新 cmd 窗口运行命令（会弹 UAC）
+            try:
+                ctypes.windll.shell32.ShellExecuteW(
+                    None, "runas", "cmd.exe",
+                    f'/c "{command}"',
+                    working_dir, 1
+                )
+                return ActionResult(True, f"[{label}] 已以管理员身份提交命令（新窗口执行）")
+            except Exception as ex:
+                return ActionResult(False, f"[{label}] 管理员命令启动失败: {ex}")
 
         result = subprocess.run(
             command,
@@ -459,12 +487,14 @@ class TaskExecutor:
         task: Dict[str, Any],
         on_done: Optional[Callable[[bool, str], None]] = None,
         async_run: bool = True,
+        as_admin: bool = False,
     ):
         def _run():
             name = task.get("name", "未命名任务")
             actions: List[Dict] = task.get("actions", [])
+            admin_tag = " 🛡[管理员]" if as_admin else ""
             self._log(f"\n{'='*40}")
-            self._log(f"▶ 开始执行任务: {name}")
+            self._log(f"▶ 开始执行任务: {name}{admin_tag}")
             self._log(f"{'='*40}")
 
             if not actions:
@@ -477,7 +507,7 @@ class TaskExecutor:
             all_ok = True
             for i, action in enumerate(actions, 1):
                 self._log(f"\n[步骤 {i}/{len(actions)}] {action.get('label') or action.get('type')}")
-                result = self.execute_action(action)
+                result = self.execute_action(action, as_admin=as_admin)
                 self._log(str(result))
                 if result.output:
                     # 只显示前 30 行输出
