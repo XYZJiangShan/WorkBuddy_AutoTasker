@@ -757,23 +757,9 @@ class MainWindow(QMainWindow):
         self.btn_add.setFixedHeight(34)
         self.btn_add.clicked.connect(self._new_task)
 
-        self.btn_edit = QPushButton("✏  编辑")
-        self.btn_edit.setObjectName("btn_edit")
-        self.btn_edit.setFixedHeight(34)
-        self.btn_edit.setEnabled(False)
-        self.btn_edit.clicked.connect(self._edit_task)
-
-        self.btn_del = QPushButton("删除")
-        self.btn_del.setObjectName("btn_delete")
-        self.btn_del.setFixedHeight(34)
-        self.btn_del.setEnabled(False)
-        self.btn_del.clicked.connect(self._delete_task)
-
         tb.addWidget(sec_label)
         tb.addStretch()
         tb.addWidget(self.btn_add)
-        tb.addWidget(self.btn_edit)
-        tb.addWidget(self.btn_del)
         tl.addLayout(tb)
 
         # 整个任务区用一个滚动区包裹
@@ -866,74 +852,114 @@ class MainWindow(QMainWindow):
         tl.addWidget(self.scroll)
         splitter.addWidget(top)
 
-        # ── 下：详情 + 日志 ──
+        # ── 下：操作栏 + 可折叠日志 ──
         bot = QWidget()
         bot.setStyleSheet("background:transparent;")
         bot_l = QVBoxLayout(bot)
         bot_l.setContentsMargins(0, 0, 0, 0)
-        bot_l.setSpacing(10)
+        bot_l.setSpacing(6)
 
-        # 详情面板
+        # ── 单行操作栏：任务名 + 全部按钮 ──
         self.detail_panel = QFrame()
         self.detail_panel.setStyleSheet(
             f"background-color:{C['panel']};border:1px solid {C['border']};border-radius:12px;")
-        self.detail_panel.setFixedHeight(66)
+        self.detail_panel.setFixedHeight(54)
         dp = QHBoxLayout(self.detail_panel)
-        dp.setContentsMargins(20, 12, 16, 12)
-        dp.setSpacing(16)
+        dp.setContentsMargins(16, 0, 12, 0)
+        dp.setSpacing(10)
 
-        info_col = QVBoxLayout()
-        info_col.setSpacing(4)
+        # 任务名 + 步骤描述（单行，用 · 分隔）
         self.detail_name = QLabel("← 选择一个任务开始")
         self.detail_name.setStyleSheet(
-            f"font-size:15px;font-weight:bold;color:{C['text']};background:transparent;")
+            f"font-size:14px;font-weight:bold;color:{C['text']};background:transparent;")
         self.detail_steps = QLabel("")
         self.detail_steps.setStyleSheet(
             f"font-size:11px;color:{C['text2']};background:transparent;")
-        self.detail_steps.setWordWrap(True)
-        info_col.addWidget(self.detail_name)
-        info_col.addWidget(self.detail_steps)
-        dp.addLayout(info_col, stretch=1)
+        self.detail_steps.setWordWrap(False)
 
-        # 操作按钮组
-        btn_col = QHBoxLayout()
-        btn_col.setSpacing(8)
-        self.btn_run = QPushButton("▶  立即执行")
+        dp.addWidget(self.detail_name)
+        dp.addWidget(self.detail_steps, stretch=1)
+
+        # 分隔竖线
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet(f"background:{C['border']};max-width:1px;margin:10px 0;")
+        dp.addWidget(sep)
+
+        # 按钮：执行 | 编辑 | 删除 | 日志
+        self.btn_run = QPushButton("▶  执行")
         self.btn_run.setObjectName("btn_run")
-        self.btn_run.setFixedSize(140, 44)
+        self.btn_run.setFixedHeight(34)
+        self.btn_run.setMinimumWidth(80)
         self.btn_run.setEnabled(False)
         self.btn_run.clicked.connect(self._run_task)
-        btn_col.addWidget(self.btn_run)
-        dp.addLayout(btn_col)
+
+        self.btn_edit2 = QPushButton("✏  编辑")
+        self.btn_edit2.setObjectName("btn_edit")
+        self.btn_edit2.setFixedHeight(34)
+        self.btn_edit2.setMinimumWidth(72)
+        self.btn_edit2.setEnabled(False)
+        self.btn_edit2.clicked.connect(self._edit_task)
+
+        self.btn_del2 = QPushButton("删除")
+        self.btn_del2.setObjectName("btn_delete")
+        self.btn_del2.setFixedHeight(34)
+        self.btn_del2.setMinimumWidth(60)
+        self.btn_del2.setEnabled(False)
+        self.btn_del2.clicked.connect(self._delete_task)
+
+        # 日志展开/折叠按钮
+        self._log_visible = False
+        self.btn_log_toggle = QPushButton("📋  日志")
+        self.btn_log_toggle.setObjectName("btn_edit")
+        self.btn_log_toggle.setFixedHeight(34)
+        self.btn_log_toggle.setMinimumWidth(72)
+        self.btn_log_toggle.setCheckable(True)
+        self.btn_log_toggle.setChecked(False)
+        self.btn_log_toggle.clicked.connect(self._toggle_log)
+
+        dp.addWidget(self.btn_run)
+        dp.addWidget(self.btn_edit2)
+        dp.addWidget(self.btn_del2)
+        dp.addWidget(self.btn_log_toggle)
         bot_l.addWidget(self.detail_panel)
 
-        # 日志标题
+        # ── 日志区（默认隐藏）──
+        self.log_container = QWidget()
+        self.log_container.setStyleSheet("background:transparent;")
+        log_vl = QVBoxLayout(self.log_container)
+        log_vl.setContentsMargins(0, 0, 0, 0)
+        log_vl.setSpacing(4)
+
         log_bar = QHBoxLayout()
         log_title = QLabel("执行日志")
         log_title.setStyleSheet(
-            f"font-size:13px;font-weight:bold;color:{C['text2']};background:transparent;")
+            f"font-size:12px;font-weight:bold;color:{C['text2']};background:transparent;")
         self.btn_clear = QPushButton("清空")
-        self.btn_clear.setFixedSize(52, 26)
+        self.btn_clear.setFixedSize(48, 24)
         self.btn_clear.setStyleSheet(
             f"font-size:11px;padding:0;background:{C['card']};border:1px solid {C['border']};"
-            f"border-radius:6px;color:{C['text2']};")
+            f"border-radius:5px;color:{C['text2']};")
         self.btn_clear.clicked.connect(lambda: self.log_view.clear())
         log_bar.addWidget(log_title)
         log_bar.addStretch()
         log_bar.addWidget(self.btn_clear)
-        bot_l.addLayout(log_bar)
+        log_vl.addLayout(log_bar)
 
         self.log_view = QTextEdit()
         self.log_view.setObjectName("log_view")
         self.log_view.setReadOnly(True)
-        self.log_view.setMinimumHeight(60)
+        self.log_view.setFixedHeight(160)
         self.log_view.setPlaceholderText("任务执行日志将在这里显示...")
-        bot_l.addWidget(self.log_view)
+        log_vl.addWidget(self.log_view)
+
+        self.log_container.setVisible(False)
+        bot_l.addWidget(self.log_container)
 
         splitter.addWidget(bot)
-        splitter.setSizes([999, 200])   # 任务区尽量大，底部区最小化
-        splitter.setStretchFactor(0, 1) # 上区随窗口拉伸
-        splitter.setStretchFactor(1, 0) # 下区固定
+        splitter.setSizes([9999, 1])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
         bl.addWidget(splitter)
         root.addWidget(body)
 
@@ -1202,13 +1228,19 @@ class MainWindow(QMainWindow):
         self._select(tid)
         self._run_task()
 
+    def _toggle_log(self, checked: bool):
+        """展开 / 折叠日志区"""
+        self._log_visible = checked
+        self.log_container.setVisible(checked)
+        self.btn_log_toggle.setText("📋  日志 ▲" if checked else "📋  日志")
+
     def _update_detail(self, task: Optional[Dict]):
         has = task is not None
         self.btn_run.setEnabled(has)
-        self.btn_edit.setEnabled(has)
-        self.btn_del.setEnabled(has)
+        self.btn_edit2.setEnabled(has)
+        self.btn_del2.setEnabled(has)
         if not task:
-            self.detail_name.setText("← 选择一个任务开始")
+            self.detail_name.setText("← 选择一个任务")
             self.detail_steps.setText("")
             return
 
@@ -1323,6 +1355,13 @@ class MainWindow(QMainWindow):
 
     # ── 日志（多色） ──
     def _append_log(self, msg: str):
+        # 任务开始时自动展开日志
+        if not self._log_visible and ("▶" in msg or "开始执行" in msg):
+            self._log_visible = True
+            self.log_container.setVisible(True)
+            self.btn_log_toggle.setChecked(True)
+            self.btn_log_toggle.setText("📋  日志 ▲")
+
         # 根据内容着色
         if "✅" in msg or "成功" in msg or "完成" in msg:
             color = "#22c55e"
