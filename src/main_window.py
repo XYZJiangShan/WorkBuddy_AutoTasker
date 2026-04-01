@@ -976,7 +976,6 @@ class MainWindow(QMainWindow):
 
             # 卡片网格
             grid_w = QWidget()
-            grid_w.setStyleSheet("background:transparent;")
             grid_w.setAcceptDrops(True)
             grid_w.dragEnterEvent = self._drag_enter
             grid_w.dragMoveEvent  = self._drag_move
@@ -987,11 +986,26 @@ class MainWindow(QMainWindow):
             grid_l.setSpacing(10)
             grid_l.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-            for i, task in enumerate(group_tasks):
-                color = _task_color(task, all_idx); all_idx += 1
-                card = self._make_card(task, color)
-                r, c = divmod(i, cols)
-                grid_l.addWidget(card, r, c)
+            if group_tasks:
+                grid_w.setStyleSheet("background:transparent;")
+                for i, task in enumerate(group_tasks):
+                    color = _task_color(task, all_idx); all_idx += 1
+                    card = self._make_card(task, color)
+                    r, c = divmod(i, cols)
+                    grid_l.addWidget(card, r, c)
+            else:
+                # 空分类：虚线占位区，保证可接收拖拽
+                grid_w.setMinimumHeight(72)
+                grid_w.setStyleSheet(
+                    f"background:transparent;"
+                    f"border:2px dashed {C['border']};"
+                    f"border-radius:10px;"
+                )
+                hint_lbl = QLabel("将任务拖到此处")
+                hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                hint_lbl.setStyleSheet(
+                    f"color:{C['text2']};font-size:12px;background:transparent;border:none;")
+                grid_l.addWidget(hint_lbl, 0, 0)
 
             self._group_grids[gid] = grid_l
             self._group_grid_ws[gid] = grid_w
@@ -1085,6 +1099,8 @@ class MainWindow(QMainWindow):
     def _drag_move(self, e):
         if e.mimeData().hasText() and e.mimeData().text().startswith("task_drag:"):
             e.acceptProposedAction()
+        else:
+            e.ignore()
 
     def _drop(self, e, group_id: str = "default"):
         text = e.mimeData().text()
@@ -1184,17 +1200,6 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         QTimer.singleShot(50, self._refresh_grid)
-
-    # ── 拖拽排序 ──
-    def _drag_enter(self, e):
-        if e.mimeData().hasText() and e.mimeData().text().startswith("task_drag:"):
-            e.acceptProposedAction()
-        else:
-            e.ignore()
-
-    def _drag_move(self, e):
-        if e.mimeData().hasText() and e.mimeData().text().startswith("task_drag:"):
-            e.acceptProposedAction()
 
     # ── 主窗口文件拖放 ──
     def dragEnterEvent(self, e):
