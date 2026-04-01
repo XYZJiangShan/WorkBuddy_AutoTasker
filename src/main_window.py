@@ -21,6 +21,50 @@ from executor import TaskExecutor
 from scheduler import TaskScheduler
 from task_editor import TaskEditorDialog
 
+# ── LOGO 路径 ──
+def _logo_path(size: int = 256) -> str:
+    """返回 assets/logo_{size}.png 的绝对路径（打包后用 sys._MEIPASS）"""
+    base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    # 开发模式：src/../assets/；打包模式：同目录
+    for candidate in [
+        os.path.join(base, '..', 'assets', f'logo_{size}.png'),
+        os.path.join(base, 'assets', f'logo_{size}.png'),
+        os.path.join(base, f'logo_{size}.png'),
+    ]:
+        p = os.path.normpath(candidate)
+        if os.path.exists(p):
+            return p
+    return ""
+
+def _make_logo_icon(size: int = 32) -> QIcon:
+    """加载 LOGO 文件，不存在则回退到代码绘制图标"""
+    path = _logo_path(256)  # 始终用最高分辨率缩放
+    if path:
+        pm = QPixmap(path).scaled(size, size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
+        if not pm.isNull():
+            return QIcon(pm)
+    # 回退：代码绘制
+    return _fallback_icon(size)
+
+def _fallback_icon(size: int = 32) -> QIcon:
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    grad = QLinearGradient(0, 0, size, size)
+    grad.setColorAt(0, QColor("#7aa2f7"))
+    grad.setColorAt(1, QColor("#9ece6a"))
+    p.setBrush(QBrush(grad))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawRoundedRect(0, 0, size, size, size * 0.2, size * 0.2)
+    p.setPen(QPen(QColor("white")))
+    p.setFont(QFont("Arial", size // 2, QFont.Weight.Bold))
+    p.drawText(0, 0, size, size, Qt.AlignmentFlag.AlignCenter, "A")
+    p.end()
+    return QIcon(pm)
+
 # ══════════════════════════════════════════════
 #  主题系统
 # ══════════════════════════════════════════════
@@ -631,6 +675,8 @@ class MainWindow(QMainWindow):
         self.resize(1080, 700)
         self.setStyleSheet(STYLE)
         self.setAcceptDrops(True)
+        # 设置窗口图标（标题栏 + 任务栏）
+        self.setWindowIcon(_make_logo_icon(256))
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -647,8 +693,12 @@ class MainWindow(QMainWindow):
         hl.setSpacing(16)
 
         # Logo
-        logo = QLabel("⚡")
-        logo.setStyleSheet("font-size:22px;background:transparent;")
+        logo = QLabel()
+        logo_icon = _make_logo_icon(32)
+        logo.setPixmap(logo_icon.pixmap(QSize(32, 32)))
+        logo.setFixedSize(36, 36)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo.setStyleSheet("background:transparent;")
         title = QLabel("AutoTasker")
         title.setStyleSheet(f"font-size:17px;font-weight:bold;color:{C['text']};background:transparent;letter-spacing:0.5px;")
 
@@ -889,21 +939,7 @@ class MainWindow(QMainWindow):
 
     def _init_tray(self):
         self.tray = QSystemTrayIcon(self)
-        pm = QPixmap(32, 32)
-        pm.fill(Qt.GlobalColor.transparent)
-        p = QPainter(pm)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        grad = QLinearGradient(0, 0, 32, 32)
-        grad.setColorAt(0, QColor("#7c6aff"))
-        grad.setColorAt(1, QColor("#22c55e"))
-        p.setBrush(QBrush(grad))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(2, 2, 28, 28, 7, 7)
-        p.setPen(QPen(QColor("white")))
-        p.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        p.drawText(0, 0, 32, 32, Qt.AlignmentFlag.AlignCenter, "A")
-        p.end()
-        self.tray.setIcon(QIcon(pm))
+        self.tray.setIcon(_make_logo_icon(32))
         self.tray.setToolTip("AutoTasker")
         m = QMenu()
         m.addAction(QAction("显示", self, triggered=self.show_window))
