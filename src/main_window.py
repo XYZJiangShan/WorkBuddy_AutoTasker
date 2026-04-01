@@ -606,40 +606,36 @@ class TaskCard(QWidget):
         if self._has_real_icon:
             # 有真实图标：悬停/选中时才画淡底色
             if self._selected:
-                p.setBrush(QBrush(QColor(C['accent'] + "22")))
-                p.setPen(QPen(QColor(C['accent']), 2))
+                p.setBrush(QBrush(QColor(255, 255, 255, 28)))   # 浅灰半透明
+                p.setPen(QPen(QColor(255, 255, 255, 60), 1))
                 p.drawRoundedRect(1, 1, w-2, h-2, r, r)
             elif self._hovered:
-                p.setBrush(QBrush(QColor(C['card'])))
+                p.setBrush(QBrush(QColor(255, 255, 255, 14)))
                 p.setPen(QPen(QColor(C['border']).lighter(140), 1))
                 p.drawRoundedRect(1, 1, w-2, h-2, r, r)
             # 默认状态：完全透明，不画任何背景
         else:
             # 纯文字图标：始终画卡片背景
             if self._selected:
-                bg = QColor(C['card_hover'])
+                bg = QColor(C['card']).lighter(135)             # 浅灰提亮
             elif self._hovered:
                 bg = QColor(C['card']).lighter(115)
             else:
                 bg = QColor(C['card'])
             p.setBrush(QBrush(bg))
             if self._selected:
-                p.setPen(QPen(QColor(C['accent']), 2))
+                p.setPen(QPen(QColor(255, 255, 255, 80), 1))   # 浅灰白边框
             elif self._hovered:
                 p.setPen(QPen(QColor(C['border']).lighter(140), 1))
             else:
                 p.setPen(QPen(QColor(C['border']), 1))
             p.drawRoundedRect(1, 1, w-2, h-2, r, r)
 
-        # 选中时底部光条
+        # 选中时底部淡灰光条（取代绿色）
         if self._selected:
-            grad = QLinearGradient(0, h-3, w, h-3)
-            grad.setColorAt(0, QColor(C['accent'] + "00"))
-            grad.setColorAt(0.5, QColor(C['accent']))
-            grad.setColorAt(1, QColor(C['accent'] + "00"))
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(grad))
-            p.drawRoundedRect(6, h-3, w-12, 3, 2, 2)
+            p.setBrush(QBrush(QColor(255, 255, 255, 50)))
+            p.drawRoundedRect(12, h-3, w-24, 2, 1, 1)
 
         p.end()
 
