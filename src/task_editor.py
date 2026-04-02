@@ -873,7 +873,11 @@ class TaskEditorDialog(QDialog):
     def _save(self):
         name = self.name_edit.text().strip()
         if not name:
-            QMessageBox.warning(self, "提示", "请输入任务名称")
+            msg = QMessageBox(self)
+            msg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+            msg.setStyleSheet(self.styleSheet())
+            msg.setText("请输入任务名称")
+            msg.exec()
             self.name_edit.setFocus()
             return
 

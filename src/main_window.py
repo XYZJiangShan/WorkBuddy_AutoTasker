@@ -1519,9 +1519,14 @@ class MainWindow(QMainWindow):
     def _delete_task(self):
         task = self._get(self.selected_task_id)
         if not task: return
-        if QMessageBox.question(self, "确认删除", f"确定删除「{task.get('name')}」？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                ) == QMessageBox.StandardButton.Yes:
+        msg = QMessageBox(self)
+        msg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        msg.setStyleSheet(build_style(C))
+        msg.setWindowTitle("确认删除")
+        msg.setText(f"确定删除「{task.get('name')}」？")
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+        if msg.exec() == QMessageBox.StandardButton.Yes:
             self.tasks = [t for t in self.tasks if t["id"] != task["id"]]
             save_tasks(self.tasks)
             self.scheduler.reload_all(self.tasks)
@@ -1644,85 +1649,272 @@ EMOJI_OPTIONS = ["⭐", "📋", "🎨", "🛠", "🎮", "📁", "🚀", "🔧", 
                  "🌐", "🎬", "📷", "🖥", "🔥", "⚡", "🎯", "💻", "🗂", "📌"]
 
 class GroupManagerDialog(QDialog):
-    """分类管理：增加/删除/重命名/调整顺序"""
+    """分类管理：增加/删除/重命名/调整顺序（无边框）"""
 
     def __init__(self, groups: List[Dict], parent=None):
         super().__init__(parent)
         import copy
         self._groups = copy.deepcopy(groups)
-        self.setWindowTitle("管理分类")
-        self.setMinimumSize(420, 380)
+        self._drag_pos = None
+        self.setMinimumSize(440, 420)
         self.setModal(True)
-        if parent:
-            self.setStyleSheet(parent.styleSheet())
+        # 无边框
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.Dialog
+        )
         self._build()
 
     def _build(self):
         c = C
+        # 全局样式（覆盖系统白色背景）
         self.setStyleSheet(f"""
-            QDialog {{ background:{c['bg']}; color:{c['text']}; }}
-            QListWidget {{ background:{c['card']}; border:none;
-                border-radius:8px; color:{c['text']}; font-size:13px; outline:none; }}
-            QListWidget::item {{ padding:8px 12px; border-radius:6px; margin:1px 4px; }}
-            QListWidget::item:selected {{ background:{c['card_hover']}; color:{c['accent']}; }}
-            QPushButton {{ background:{c['card']}; color:{c['text2']}; border:none;
-                border-radius:7px; padding:6px 14px; font-size:12px; }}
-            QPushButton:hover {{ background:{c['card_hover']}; color:{c['text']}; }}
-            QPushButton#btn_add {{ background:{c['accent2']}22; color:{c['accent2']}; font-weight:600; }}
-            QPushButton#btn_add:hover {{ background:{c['accent2']}38; }}
-            QPushButton#btn_del {{ background:transparent; color:{c['danger']}; }}
-            QPushButton#btn_del:hover {{ background:{c['danger']}18; }}
-            QLabel {{ color:{c['text']}; background:transparent; }}
+            QDialog, QWidget {{
+                background-color:{c['bg']};
+                color:{c['text']};
+                font-family:"Microsoft YaHei UI","Segoe UI",sans-serif;
+                font-size:13px;
+                border:none;
+            }}
+            QListWidget {{
+                background:{c['card']};
+                border:none;
+                border-radius:8px;
+                outline:none;
+            }}
+            QListWidget::item {{
+                padding:9px 12px;
+                border-radius:6px;
+                margin:1px 4px;
+                color:{c['text']};
+            }}
+            QListWidget::item:selected {{
+                background:{c['accent']}22;
+                color:{c['accent']};
+            }}
+            QListWidget::item:hover:!selected {{ background:{c['card_hover']}; }}
+            QPushButton {{
+                background:{c['card']};
+                color:{c['text']};
+                border:none;
+                border-radius:7px;
+                padding:6px 14px;
+                font-size:12px;
+            }}
+            QPushButton:hover {{ background:{c['card_hover']}; }}
+            QPushButton#btn_add_grp {{
+                background:{c['accent2']}22;
+                color:{c['accent2']};
+                font-weight:600;
+            }}
+            QPushButton#btn_add_grp:hover {{ background:{c['accent2']}38; }}
+            QPushButton#btn_del_grp {{
+                background:transparent;
+                color:{c['danger']};
+            }}
+            QPushButton#btn_del_grp:hover {{ background:{c['danger']}18; }}
+            QPushButton#btn_win_close {{
+                background:transparent;
+                color:{c['text2']};
+                border:none;
+                border-radius:6px;
+                font-size:13px;
+                padding:0;
+            }}
+            QPushButton#btn_win_close:hover {{
+                background:{c['danger']};
+                color:#ffffff;
+            }}
+            QPushButton#btn_ok {{
+                background:{c['accent']};
+                color:#ffffff;
+                font-weight:600;
+                padding:6px 20px;
+            }}
+            QPushButton#btn_ok:hover {{ background:{c['accent']}cc; }}
+            QLineEdit {{
+                background:{c['card']};
+                color:{c['text']};
+                border:none;
+                border-radius:6px;
+                padding:5px 10px;
+            }}
+            QLineEdit:focus {{ background:{c['card_hover']}; }}
+            QLabel {{ color:{c['text2']}; background:transparent; }}
         """)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(12)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── 自定义标题栏 ──
+        title_bar = QWidget()
+        title_bar.setFixedHeight(44)
+        title_bar.setStyleSheet(f"background:{c['panel']};")
+        title_bar.mousePressEvent   = lambda e: self._tb_press(e)
+        title_bar.mouseMoveEvent    = lambda e: self._tb_move(e)
+        title_bar.mouseReleaseEvent = lambda e: self._tb_release(e)
+        tb_l = QHBoxLayout(title_bar)
+        tb_l.setContentsMargins(16, 0, 8, 0)
+        tb_l.setSpacing(10)
+        title_lbl = QLabel("管理分类")
+        title_lbl.setStyleSheet(
+            f"font-size:14px;font-weight:bold;color:{c['text']};background:transparent;")
+        btn_close = QPushButton("✕")
+        btn_close.setObjectName("btn_win_close")
+        btn_close.setFixedSize(30, 30)
+        btn_close.clicked.connect(self.reject)
+        tb_l.addWidget(title_lbl)
+        tb_l.addStretch()
+        tb_l.addWidget(btn_close)
+        root.addWidget(title_bar)
+
+        # ── 主体内容 ──
+        body = QWidget()
+        body.setStyleSheet(f"background:{c['bg']};")
+        body_l = QVBoxLayout(body)
+        body_l.setContentsMargins(16, 12, 16, 14)
+        body_l.setSpacing(10)
 
         hint = QLabel("拖拽列表项可调整排序 · 双击重命名")
-        hint.setStyleSheet(f"color:{c['text2']};font-size:11px;")
-        layout.addWidget(hint)
+        hint.setStyleSheet(f"color:{c['text2']};font-size:11px;background:transparent;")
+        body_l.addWidget(hint)
 
         self.list_w = QListWidget()
         self.list_w.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         self.list_w.itemDoubleClicked.connect(self._rename_item)
-        layout.addWidget(self.list_w)
+        body_l.addWidget(self.list_w)
         self._reload_list()
 
-        # 按钮行
+        # 内联编辑行（替代 QInputDialog）
+        self.inline_edit = QLineEdit()
+        self.inline_edit.setPlaceholderText("输入名称后按回车确认…")
+        self.inline_edit.setFixedHeight(32)
+        self.inline_edit.setVisible(False)
+        self._inline_mode = None  # "add" or "rename"
+        self.inline_edit.returnPressed.connect(self._inline_confirm)
+        body_l.addWidget(self.inline_edit)
+
+        # emoji 选择行
+        self.emoji_row = QWidget()
+        self.emoji_row.setVisible(False)
+        emoji_l = QHBoxLayout(self.emoji_row)
+        emoji_l.setContentsMargins(0, 0, 0, 0)
+        emoji_l.setSpacing(4)
+        for e in EMOJI_OPTIONS:
+            btn = QPushButton(e)
+            btn.setFixedSize(32, 32)
+            btn.setStyleSheet(
+                f"font-size:16px;background:{c['card']};border:none;border-radius:6px;padding:0;")
+            btn.clicked.connect(lambda _, em=e: self._apply_emoji(em))
+            emoji_l.addWidget(btn)
+        emoji_l.addStretch()
+        body_l.addWidget(self.emoji_row)
+
+        # 操作按钮
         btn_row = QHBoxLayout()
         btn_add = QPushButton("＋  新增分类")
-        btn_add.setObjectName("btn_add")
-        btn_add.clicked.connect(self._add_group)
-
+        btn_add.setObjectName("btn_add_grp")
+        btn_add.clicked.connect(self._start_add)
         btn_rename = QPushButton("✏  重命名")
-        btn_rename.clicked.connect(self._rename_selected)
-
+        btn_rename.clicked.connect(self._start_rename)
         btn_emoji = QPushButton("😀  图标")
-        btn_emoji.clicked.connect(self._change_emoji)
-
+        btn_emoji.clicked.connect(self._toggle_emoji)
         btn_del = QPushButton("🗑  删除")
-        btn_del.setObjectName("btn_del")
+        btn_del.setObjectName("btn_del_grp")
         btn_del.clicked.connect(self._del_group)
-
         btn_row.addWidget(btn_add)
         btn_row.addStretch()
         btn_row.addWidget(btn_rename)
         btn_row.addWidget(btn_emoji)
         btn_row.addWidget(btn_del)
-        layout.addLayout(btn_row)
+        body_l.addLayout(btn_row)
 
-        # OK / Cancel
-        bb = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        bb.setStyleSheet(f"""
-            QPushButton {{ background:{c['card']}; color:{c['text']}; border:none;
-                border-radius:7px; padding:6px 18px; }}
-            QPushButton:hover {{ background:{c['card_hover']}; }}
-        """)
-        bb.accepted.connect(self._on_ok)
-        bb.rejected.connect(self.reject)
-        layout.addWidget(bb)
+        # 确认/取消
+        ok_row = QHBoxLayout()
+        ok_row.addStretch()
+        btn_cancel = QPushButton("取消")
+        btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton("确定")
+        btn_ok.setObjectName("btn_ok")
+        btn_ok.clicked.connect(self._on_ok)
+        ok_row.addWidget(btn_cancel)
+        ok_row.addWidget(btn_ok)
+        body_l.addLayout(ok_row)
+
+        root.addWidget(body)
+
+    # ── 标题栏拖动 ──
+    def _tb_press(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def _tb_move(self, e):
+        if e.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+            self.move(e.globalPosition().toPoint() - self._drag_pos)
+
+    def _tb_release(self, e):
+        self._drag_pos = None
+
+    # ── 内联输入 ──
+    def _start_add(self):
+        self._inline_mode = "add"
+        self.inline_edit.clear()
+        self.inline_edit.setPlaceholderText("新分类名称，按回车确认…")
+        self.inline_edit.setVisible(True)
+        self.emoji_row.setVisible(False)
+        self.inline_edit.setFocus()
+
+    def _start_rename(self):
+        item = self.list_w.currentItem()
+        if not item:
+            return
+        gid = item.data(Qt.ItemDataRole.UserRole)
+        g = next((x for x in self._groups if x["id"] == gid), None)
+        if not g:
+            return
+        self._inline_mode = "rename"
+        self.inline_edit.setText(g["name"])
+        self.inline_edit.setPlaceholderText("新名称，按回车确认…")
+        self.inline_edit.setVisible(True)
+        self.emoji_row.setVisible(False)
+        self.inline_edit.setFocus()
+        self.inline_edit.selectAll()
+
+    def _inline_confirm(self):
+        text = self.inline_edit.text().strip()
+        if not text:
+            self.inline_edit.setVisible(False)
+            return
+        if self._inline_mode == "add":
+            g = new_group(text, "📁", len(self._groups))
+            self._groups.append(g)
+        elif self._inline_mode == "rename":
+            item = self.list_w.currentItem()
+            if item:
+                gid = item.data(Qt.ItemDataRole.UserRole)
+                g = next((x for x in self._groups if x["id"] == gid), None)
+                if g:
+                    g["name"] = text
+        self.inline_edit.setVisible(False)
+        self._inline_mode = None
+        self._reload_list()
+
+    def _toggle_emoji(self):
+        self.emoji_row.setVisible(not self.emoji_row.isVisible())
+        self.inline_edit.setVisible(False)
+
+    def _apply_emoji(self, emoji: str):
+        item = self.list_w.currentItem()
+        if not item:
+            self.emoji_row.setVisible(False)
+            return
+        gid = item.data(Qt.ItemDataRole.UserRole)
+        g = next((x for x in self._groups if x["id"] == gid), None)
+        if g:
+            g["emoji"] = emoji
+        self.emoji_row.setVisible(False)
+        self._reload_list()
 
     def _reload_list(self):
         self.list_w.clear()
@@ -1731,44 +1923,8 @@ class GroupManagerDialog(QDialog):
             item.setData(Qt.ItemDataRole.UserRole, g["id"])
             self.list_w.addItem(item)
 
-    def _add_group(self):
-        name, ok = QInputDialog.getText(self, "新增分类", "分类名称:")
-        if ok and name.strip():
-            g = new_group(name.strip(), "📁", len(self._groups))
-            self._groups.append(g)
-            self._reload_list()
-
     def _rename_item(self, item: QListWidgetItem):
-        gid = item.data(Qt.ItemDataRole.UserRole)
-        g = next((x for x in self._groups if x["id"] == gid), None)
-        if not g:
-            return
-        name, ok = QInputDialog.getText(self, "重命名", "新名称:", text=g["name"])
-        if ok and name.strip():
-            g["name"] = name.strip()
-            self._reload_list()
-
-    def _rename_selected(self):
-        item = self.list_w.currentItem()
-        if item:
-            self._rename_item(item)
-
-    def _change_emoji(self):
-        item = self.list_w.currentItem()
-        if not item:
-            return
-        gid = item.data(Qt.ItemDataRole.UserRole)
-        g = next((x for x in self._groups if x["id"] == gid), None)
-        if not g:
-            return
-        emoji, ok = QInputDialog.getItem(
-            self, "选择图标", "选择分类图标:",
-            EMOJI_OPTIONS, EMOJI_OPTIONS.index(g.get("emoji","📁")) if g.get("emoji","📁") in EMOJI_OPTIONS else 5,
-            False
-        )
-        if ok:
-            g["emoji"] = emoji
-            self._reload_list()
+        self._start_rename()
 
     def _del_group(self):
         item = self.list_w.currentItem()
@@ -1776,22 +1932,11 @@ class GroupManagerDialog(QDialog):
             return
         gid = item.data(Qt.ItemDataRole.UserRole)
         if len(self._groups) <= 1:
-            QMessageBox.warning(self, "无法删除", "至少保留一个分类")
             return
-        g = next((x for x in self._groups if x["id"] == gid), None)
-        if not g:
-            return
-        ret = QMessageBox.question(
-            self, "删除分类",
-            f"确定删除「{g['name']}」？\n该分类中的任务将移入最后一个分类。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if ret == QMessageBox.StandardButton.Yes:
-            self._groups = [x for x in self._groups if x["id"] != gid]
-            self._reload_list()
+        self._groups = [x for x in self._groups if x["id"] != gid]
+        self._reload_list()
 
     def _on_ok(self):
-        # 按照列表当前顺序重新排序
         order_map = {}
         for i in range(self.list_w.count()):
             item = self.list_w.item(i)
@@ -1804,4 +1949,5 @@ class GroupManagerDialog(QDialog):
 
     def get_groups(self) -> List[Dict]:
         return self._groups
+
 
