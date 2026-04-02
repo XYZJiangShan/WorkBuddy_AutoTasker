@@ -416,6 +416,33 @@ QDialog {{
 QDialogButtonBox QPushButton {{
     min-width: 72px;
 }}
+/* 窗口控制按钮（最小化）*/
+QPushButton#btn_win_ctrl {{
+    background: transparent;
+    color: {c['text2']};
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0;
+}}
+QPushButton#btn_win_ctrl:hover {{
+    background: {c['card_hover']};
+    color: {c['text']};
+}}
+/* 窗口控制按钮（关闭）*/
+QPushButton#btn_win_close {{
+    background: transparent;
+    color: {c['text2']};
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    padding: 0;
+}}
+QPushButton#btn_win_close:hover {{
+    background: {c['danger']};
+    color: #ffffff;
+}}
 """
 
 STYLE = build_style(C)
@@ -756,41 +783,59 @@ class MainWindow(QMainWindow):
         self.resize(1080, 700)
         self.setStyleSheet(STYLE)
         self.setAcceptDrops(True)
-        # 设置窗口图标（标题栏 + 任务栏）
+        # 无边框窗口
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.Window
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        # 任务栏图标
         self.setWindowIcon(_make_logo_icon(256))
 
+        # 拖动状态
+        self._drag_pos = None
+
         central = QWidget()
+        central.setStyleSheet(f"QWidget {{ border: 1px solid {C['border']}; }}")
+        self._central_widget = central
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ═══ Header ═══
+
+
+        # ═══ Header（自定义标题栏）═══
         header = QWidget()
         self._header_widget = header
         header.setFixedHeight(56)
         header.setStyleSheet(f"background-color:{C['panel']};border-bottom:1px solid {C['border']};")
+        # 鼠标拖动支持
+        header.mousePressEvent   = self._header_mouse_press
+        header.mouseMoveEvent    = self._header_mouse_move
+        header.mouseReleaseEvent = self._header_mouse_release
+
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(20, 0, 20, 0)
-        hl.setSpacing(16)
+        hl.setContentsMargins(16, 0, 8, 0)
+        hl.setSpacing(12)
 
         # Logo
         logo = QLabel()
         logo_icon = _make_logo_icon(32)
-        logo.setPixmap(logo_icon.pixmap(QSize(32, 32)))
-        logo.setFixedSize(36, 36)
+        logo.setPixmap(logo_icon.pixmap(QSize(28, 28)))
+        logo.setFixedSize(32, 32)
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo.setStyleSheet("background:transparent;")
         title = QLabel("AutoTasker")
         self._title_lbl = title
-        title.setStyleSheet(f"font-size:17px;font-weight:bold;color:{C['text']};background:transparent;letter-spacing:0.5px;")
+        title.setStyleSheet(f"font-size:16px;font-weight:bold;color:{C['text']};background:transparent;letter-spacing:0.5px;")
 
         # 搜索框
         self.search_box = QLineEdit()
         self.search_box.setObjectName("search_box")
         self.search_box.setPlaceholderText("🔍  搜索任务...")
-        self.search_box.setFixedWidth(240)
-        self.search_box.setFixedHeight(34)
+        self.search_box.setFixedWidth(220)
+        self.search_box.setFixedHeight(32)
         self.search_box.textChanged.connect(self._on_search)
 
         # 状态
@@ -800,9 +845,22 @@ class MainWindow(QMainWindow):
         # 主题切换按钮
         self.btn_theme = QPushButton("🎨")
         self.btn_theme.setObjectName("btn_theme")
-        self.btn_theme.setFixedSize(36, 34)
+        self.btn_theme.setFixedSize(32, 32)
         self.btn_theme.setToolTip("切换主题")
         self.btn_theme.clicked.connect(self._show_theme_menu)
+
+        # ── 窗口控制按钮 ──
+        self.btn_win_min = QPushButton("—")
+        self.btn_win_min.setObjectName("btn_win_ctrl")
+        self.btn_win_min.setFixedSize(32, 32)
+        self.btn_win_min.setToolTip("最小化")
+        self.btn_win_min.clicked.connect(self.showMinimized)
+
+        self.btn_win_close = QPushButton("✕")
+        self.btn_win_close.setObjectName("btn_win_close")
+        self.btn_win_close.setFixedSize(32, 32)
+        self.btn_win_close.setToolTip("关闭到托盘")
+        self.btn_win_close.clicked.connect(self.close)
 
         hl.addWidget(logo)
         hl.addWidget(title)
@@ -811,6 +869,14 @@ class MainWindow(QMainWindow):
         hl.addStretch()
         hl.addWidget(self.status_lbl)
         hl.addWidget(self.btn_theme)
+        # 分隔
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFixedWidth(1)
+        sep.setStyleSheet(f"background:{C['border']};margin:12px 2px;")
+        hl.addWidget(sep)
+        hl.addWidget(self.btn_win_min)
+        hl.addWidget(self.btn_win_close)
         root.addWidget(header)
 
         # ═══ 主体 ═══
@@ -1327,9 +1393,27 @@ class MainWindow(QMainWindow):
     def _refresh_panel_styles(self):
         self._refresh_all_dynamic_styles()
 
+    # ── 自定义标题栏拖动 ──
+    def _header_mouse_press(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def _header_mouse_move(self, e):
+        if e.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+            self.move(e.globalPosition().toPoint() - self._drag_pos)
+
+    def _header_mouse_release(self, e):
+        self._drag_pos = None
+
+    def mouseDoubleClickEvent(self, e):
+        """双击标题栏最大化/还原"""
+        pass  # 可选：实现最大化
+
     def resizeEvent(self, e):
         super().resizeEvent(e)
         QTimer.singleShot(50, self._refresh_grid)
+
+
 
     # ── 主窗口文件拖放 ──
     def dragEnterEvent(self, e):
