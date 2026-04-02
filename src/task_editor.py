@@ -1,6 +1,6 @@
 """
 任务编辑对话框 - 重设计版
-布局：上方基本信息 + 中间左右分栏（步骤列表 | 步骤配置）+ 下方定时/保存
+布局：自定义标题栏 + 上方基本信息 + 中间左右分栏（步骤列表 | 步骤配置）+ 下方定时/保存
 """
 from typing import Dict, Any, List, Optional
 from PyQt6.QtWidgets import (
@@ -10,100 +10,148 @@ from PyQt6.QtWidgets import (
     QMessageBox, QScrollArea, QStackedWidget, QSizePolicy,
     QListWidget, QListWidgetItem,
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QPoint
 from PyQt6.QtGui import QColor, QFont
 
 from config_manager import new_action
 from scheduler import SCHEDULE_PRESETS
 
 # ──────────────────────────────────────────
-#  样式
+#  从主窗口引入主题（运行时动态获取）
 # ──────────────────────────────────────────
-STYLE = """
-QDialog, QWidget {
-    background-color: #1a1a2e;
-    color: #e0e0e0;
+def _C():
+    """延迟获取当前主题颜色字典，避免循环导入"""
+    try:
+        from main_window import C
+        return C
+    except Exception:
+        return {
+            "bg": "#111318", "panel": "#1c1e26", "card": "#22252f",
+            "card_hover": "#2a2e3a", "border": "#32374a",
+            "accent": "#6d8ff5", "accent2": "#56c9a0",
+            "danger": "#e05c6e", "warn": "#e8a644",
+            "text": "#d4d8f0", "text2": "#5c6485",
+        }
+
+def _build_editor_style() -> str:
+    c = _C()
+    return f"""
+QDialog, QWidget {{
+    background-color: {c['bg']};
+    color: {c['text']};
     font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
     font-size: 13px;
-}
-QLabel { color: #c0c0d0; }
-QLabel.section { font-size: 12px; font-weight: bold; color: #a78bfa; }
-
-QLineEdit, QTextEdit, QComboBox, QSpinBox {
-    background-color: #0d1117;
-    color: #e0e0e0;
-    border: 1px solid #2a3a5c;
-    border-radius: 5px;
-    padding: 5px 8px;
-}
-QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus {
-    border-color: #a78bfa;
-}
-QLineEdit[required="true"] { border-color: #7a4a1a; }
-QLineEdit[required="true"]:focus { border-color: #e8a045; }
-
-QCheckBox { color: #c0c0d0; spacing: 6px; }
-QCheckBox::indicator {
+    border: none;
+}}
+QLabel {{ color: {c['text2']}; background: transparent; }}
+QLineEdit, QTextEdit, QSpinBox {{
+    background-color: {c['card']};
+    color: {c['text']};
+    border: none;
+    border-radius: 6px;
+    padding: 5px 9px;
+    selection-background-color: {c['accent']}44;
+}}
+QLineEdit:focus, QTextEdit:focus, QSpinBox:focus {{
+    background-color: {c['card_hover']};
+}}
+QComboBox {{
+    background-color: {c['card']};
+    color: {c['text']};
+    border: none;
+    border-radius: 6px;
+    padding: 5px 9px;
+}}
+QComboBox:focus {{ background-color: {c['card_hover']}; }}
+QComboBox::drop-down {{ border: none; width: 20px; }}
+QComboBox QAbstractItemView {{
+    background-color: {c['panel']};
+    color: {c['text']};
+    border: none;
+    selection-background-color: {c['card_hover']};
+    outline: none;
+}}
+QCheckBox {{ color: {c['text']}; spacing: 6px; }}
+QCheckBox::indicator {{
     width: 15px; height: 15px;
-    border: 2px solid #a78bfa; border-radius: 3px;
-    background: #0d1117;
-}
-QCheckBox::indicator:checked { background: #a78bfa; }
-
-QPushButton {
-    background-color: #0f3460; color: #e0e0e0;
-    border: none; border-radius: 6px; padding: 6px 14px;
-}
-QPushButton:hover { background-color: #1a4a80; }
-QPushButton#btn_save {
-    background-color: #533483; color: #fff;
-    font-weight: bold; padding: 8px 28px;
-}
-QPushButton#btn_save:hover { background-color: #6b44a8; }
-QPushButton#btn_add_step {
-    background-color: #1a7a4a; color: #fff;
-}
-QPushButton#btn_add_step:hover { background-color: #22a060; }
-QPushButton#btn_del_step {
-    background-color: #7a1a1a; color: #fff;
+    border: 1.5px solid {c['border']};
+    border-radius: 4px;
+    background: {c['card']};
+}}
+QCheckBox::indicator:checked {{
+    background: {c['accent']};
+    border-color: {c['accent']};
+}}
+QPushButton {{
+    background-color: {c['card']};
+    color: {c['text']};
+    border: none;
+    border-radius: 7px;
+    padding: 6px 14px;
+    font-size: 13px;
+}}
+QPushButton:hover {{ background-color: {c['card_hover']}; }}
+QPushButton:pressed {{ background-color: {c['border']}; }}
+QPushButton#btn_save {{
+    background-color: {c['accent']};
+    color: #ffffff;
+    font-weight: 600;
+    padding: 7px 24px;
+}}
+QPushButton#btn_save:hover {{ background-color: {c['accent']}cc; }}
+QPushButton#btn_add_step {{
+    background-color: {c['accent2']}22;
+    color: {c['accent2']};
+    font-weight: 600;
+}}
+QPushButton#btn_add_step:hover {{ background-color: {c['accent2']}38; }}
+QPushButton#btn_del_step {{
+    background-color: transparent;
+    color: {c['danger']};
     padding: 4px 10px;
-}
-QPushButton#btn_del_step:hover { background-color: #a02222; }
-
-/* 步骤列表 */
-QListWidget {
-    background-color: #0d1117;
-    border: 1px solid #2a3a5c;
-    border-radius: 6px; outline: none;
-}
-QListWidget::item {
-    padding: 10px 12px; border-radius: 4px; margin: 2px 4px;
-    color: #c8c8d4;
-}
-QListWidget::item:selected { background-color: #0f3460; color: #fff; }
-QListWidget::item:hover:!selected { background-color: #1f2e50; }
-
-/* 配置面板 */
-QFrame#config_panel {
-    background-color: #16213e;
-    border: 1px solid #2a3a5c;
+}}
+QPushButton#btn_del_step:hover {{ background-color: {c['danger']}18; }}
+QPushButton#btn_win_close {{
+    background: transparent;
+    color: {c['text2']};
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    padding: 0;
+}}
+QPushButton#btn_win_close:hover {{
+    background: {c['danger']};
+    color: #ffffff;
+}}
+QListWidget {{
+    background-color: {c['card']};
+    border: none;
     border-radius: 8px;
-}
-QFrame#separator { background-color: #2a3a5c; max-height: 1px; }
-
-QScrollArea { border: none; background: transparent; }
-QScrollBar:vertical {
-    background: #16213e; width: 6px; border-radius: 3px;
-}
-QScrollBar::handle:vertical { background: #0f3460; border-radius: 3px; min-height: 20px; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-
-QComboBox::drop-down { border: none; width: 24px; }
-QComboBox QAbstractItemView {
-    background-color: #16213e; color: #e0e0e0;
-    border: 1px solid #2a3a5c;
-    selection-background-color: #0f3460;
-}
+    outline: none;
+}}
+QListWidget::item {{
+    padding: 9px 12px;
+    border-radius: 6px;
+    margin: 1px 4px;
+    color: {c['text']};
+}}
+QListWidget::item:selected {{
+    background-color: {c['accent']}22;
+    color: {c['accent']};
+}}
+QListWidget::item:hover:!selected {{ background-color: {c['card_hover']}; }}
+QFrame#config_panel {{
+    background-color: {c['panel']};
+    border-radius: 10px;
+}}
+QScrollArea {{ border: none; background: transparent; }}
+QScrollBar:vertical {{
+    background: transparent; width: 3px; margin: 2px 0;
+}}
+QScrollBar::handle:vertical {{
+    background: {c['border']}; border-radius: 2px; min-height: 20px;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 """
 
 ACTION_TYPE_OPTIONS = [
@@ -119,32 +167,35 @@ ACTION_TYPE_NAMES = {v: k for k, v in ACTION_TYPE_OPTIONS}
 
 def _sep() -> QFrame:
     f = QFrame()
-    f.setObjectName("separator")
     f.setFrameShape(QFrame.Shape.HLine)
+    c = _C()
+    f.setStyleSheet(f"background-color:{c['border']}44;max-height:1px;border:none;")
     return f
 
 
 def _section(text: str) -> QLabel:
+    c = _C()
     lbl = QLabel(text)
-    lbl.setStyleSheet("font-size: 12px; font-weight: bold; color: #a78bfa; padding: 2px 0;")
+    lbl.setStyleSheet(f"font-size:12px;font-weight:bold;color:{c['accent']};padding:2px 0;background:transparent;")
     return lbl
 
 
 def _browse_btn(callback) -> QPushButton:
     btn = QPushButton("浏览")
-    btn.setFixedWidth(56)
-    btn.setStyleSheet("padding: 5px 6px; font-size: 12px;")
+    btn.setFixedWidth(52)
+    btn.setStyleSheet("padding:4px 6px;font-size:12px;")
     btn.clicked.connect(callback)
     return btn
 
 
 def _field_row(label: str, widget, browse_cb=None) -> QHBoxLayout:
     row = QHBoxLayout()
-    row.setSpacing(6)
+    row.setSpacing(8)
+    c = _C()
     lbl = QLabel(label)
-    lbl.setFixedWidth(80)
+    lbl.setFixedWidth(76)
     lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-    lbl.setStyleSheet("color: #8a8aaa; font-size: 12px;")
+    lbl.setStyleSheet(f"color:{c['text2']};font-size:12px;background:transparent;")
     row.addWidget(lbl)
     row.addWidget(widget, stretch=1)
     if browse_cb:
@@ -153,10 +204,13 @@ def _field_row(label: str, widget, browse_cb=None) -> QHBoxLayout:
 
 
 def _hint(text: str) -> QLabel:
+    c = _C()
     lbl = QLabel(text)
-    lbl.setStyleSheet("color: #5a6a8a; font-size: 11px;")
+    lbl.setStyleSheet(f"color:{c['text2']};font-size:11px;background:transparent;")
     lbl.setWordWrap(True)
     return lbl
+
+
 
 
 # ══════════════════════════════════════════════════════
@@ -457,37 +511,74 @@ class TaskEditorDialog(QDialog):
         super().__init__(parent)
         self.task = task
         self.is_new = is_new
-        # [{action, panel_widget}]
         self.step_entries: List[Dict] = []
+        self._drag_pos = None
 
-        self.setWindowTitle("新建任务" if is_new else f"编辑  ·  {task.get('name', '')}")
         self.setModal(True)
-        self.resize(780, 580)
+        self.resize(800, 600)
         self.setMinimumSize(700, 520)
-        self.setStyleSheet(STYLE)
+        # 无边框
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.Dialog
+        )
+        self.setStyleSheet(_build_editor_style())
 
         self._build_ui()
         self._load_steps()
 
     # ──────────────────────────────────────
     def _build_ui(self):
+        c = _C()
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 14, 16, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # ── 基本信息（单行横排）──
+        # ═══ 自定义标题栏 ═══
+        title_bar = QWidget()
+        title_bar.setFixedHeight(46)
+        title_bar.setStyleSheet(f"background-color:{c['panel']};border-radius:0px;")
+        title_bar.mousePressEvent   = self._tb_press
+        title_bar.mouseMoveEvent    = self._tb_move
+        title_bar.mouseReleaseEvent = self._tb_release
+        tb_l = QHBoxLayout(title_bar)
+        tb_l.setContentsMargins(16, 0, 8, 0)
+        tb_l.setSpacing(10)
+
+        title_lbl = QLabel("新建任务" if self.is_new else f"编辑  ·  {self.task.get('name', '')}")
+        title_lbl.setStyleSheet(
+            f"font-size:14px;font-weight:bold;color:{c['text']};background:transparent;")
+        btn_close = QPushButton("✕")
+        btn_close.setObjectName("btn_win_close")
+        btn_close.setFixedSize(30, 30)
+        btn_close.setToolTip("关闭")
+        btn_close.clicked.connect(self.reject)
+
+        tb_l.addWidget(title_lbl)
+        tb_l.addStretch()
+        tb_l.addWidget(btn_close)
+        root.addWidget(title_bar)
+
+        # ═══ 主体内容 ═══
+        content = QWidget()
+        content.setStyleSheet(f"background-color:{c['bg']};")
+        content_l = QVBoxLayout(content)
+        content_l.setContentsMargins(16, 12, 16, 12)
+        content_l.setSpacing(10)
+
+        # ── 基本信息行 ──
         info_row = QHBoxLayout()
         info_row.setSpacing(12)
 
         name_lbl = QLabel("任务名称")
-        name_lbl.setStyleSheet("color: #8a8aaa; font-size: 12px;")
+        name_lbl.setStyleSheet(f"color:{c['text2']};font-size:12px;background:transparent;")
         name_lbl.setFixedWidth(56)
         self.name_edit = QLineEdit(self.task.get("name", ""))
         self.name_edit.setPlaceholderText("输入任务名称（必填）")
         self.name_edit.setFixedHeight(32)
 
         desc_lbl = QLabel("描述")
-        desc_lbl.setStyleSheet("color: #8a8aaa; font-size: 12px;")
+        desc_lbl.setStyleSheet(f"color:{c['text2']};font-size:12px;background:transparent;")
         desc_lbl.setFixedWidth(30)
         self.desc_edit = QLineEdit(self.task.get("description", ""))
         self.desc_edit.setPlaceholderText("可选")
@@ -501,29 +592,26 @@ class TaskEditorDialog(QDialog):
         info_row.addWidget(desc_lbl)
         info_row.addWidget(self.desc_edit, stretch=3)
         info_row.addWidget(self.enabled_check)
-        root.addLayout(info_row)
-        root.addWidget(_sep())
+        content_l.addLayout(info_row)
+        content_l.addWidget(_sep())
 
-        # ── 中间主体：左步骤列表 | 右配置面板 ──
+        # ── 中间：左步骤列表 | 右配置面板 ──
         body = QHBoxLayout()
         body.setSpacing(10)
 
-        # 左：步骤列表
+        # 左侧步骤列表
         left = QWidget()
-        left.setFixedWidth(180)
+        left.setFixedWidth(176)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(6)
 
-        steps_lbl = _section("操作步骤")
-        left_layout.addWidget(steps_lbl)
-
+        left_layout.addWidget(_section("操作步骤"))
         self.step_list = QListWidget()
-        self.step_list.setMinimumHeight(200)
+        self.step_list.setMinimumHeight(180)
         self.step_list.currentRowChanged.connect(self._on_step_selected)
         left_layout.addWidget(self.step_list, stretch=1)
 
-        # 步骤操作按钮
         step_btns = QHBoxLayout()
         step_btns.setSpacing(4)
         self.btn_up = QPushButton("↑")
@@ -544,10 +632,9 @@ class TaskEditorDialog(QDialog):
         step_btns.addWidget(self.btn_del_step)
         left_layout.addLayout(step_btns)
 
-        # 添加步骤
         left_layout.addWidget(_sep())
         add_lbl = QLabel("添加步骤")
-        add_lbl.setStyleSheet("color: #6a7a9a; font-size: 11px;")
+        add_lbl.setStyleSheet(f"color:{c['text2']};font-size:11px;background:transparent;")
         left_layout.addWidget(add_lbl)
         self.type_combo = QComboBox()
         for name, key in ACTION_TYPE_OPTIONS:
@@ -558,45 +645,39 @@ class TaskEditorDialog(QDialog):
         btn_add.setFixedHeight(30)
         btn_add.clicked.connect(self._add_step)
         left_layout.addWidget(btn_add)
-
         body.addWidget(left)
 
-        # 右：配置面板（StackedWidget）
+        # 右侧配置面板
         right = QFrame()
         right.setObjectName("config_panel")
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
-
         self.panel_stack = QStackedWidget()
-
-        # 空状态页
         empty_page = QWidget()
         ep_layout = QVBoxLayout(empty_page)
         empty_lbl = QLabel("← 从左侧选择或添加步骤")
-        empty_lbl.setStyleSheet("color: #4a5a7a; font-size: 13px;")
+        empty_lbl.setStyleSheet(f"color:{c['text2']};font-size:13px;background:transparent;")
         empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ep_layout.addWidget(empty_lbl)
-        self.panel_stack.addWidget(empty_page)  # index 0 = 空状态
-
+        self.panel_stack.addWidget(empty_page)
         right_layout.addWidget(self.panel_stack)
         body.addWidget(right, stretch=1)
 
-        root.addLayout(body, stretch=1)
-        root.addWidget(_sep())
+        content_l.addLayout(body, stretch=1)
+        content_l.addWidget(_sep())
 
         # ── 底部：定时 + 保存 ──
         bottom = QHBoxLayout()
-        bottom.setSpacing(16)
+        bottom.setSpacing(12)
 
         sched_lbl = QLabel("定时执行:")
-        sched_lbl.setStyleSheet("color: #8a8aaa; font-size: 12px;")
+        sched_lbl.setStyleSheet(f"color:{c['text2']};font-size:12px;background:transparent;")
         self.sched_combo = QComboBox()
-        self.sched_combo.setMinimumWidth(160)
+        self.sched_combo.setMinimumWidth(150)
         for label, val in SCHEDULE_PRESETS:
             self.sched_combo.addItem(label, val)
         self.sched_combo.currentIndexChanged.connect(self._on_sched_changed)
 
-        # 自定义定时
         self.custom_sched = QWidget()
         cs_layout = QHBoxLayout(self.custom_sched)
         cs_layout.setContentsMargins(0, 0, 0, 0)
@@ -604,10 +685,10 @@ class TaskEditorDialog(QDialog):
         self.sched_type = QComboBox()
         self.sched_type.addItem("每天定时", "cron")
         self.sched_type.addItem("按间隔", "interval")
-        self.cron_h = QSpinBox(); self.cron_h.setRange(0, 23); self.cron_h.setFixedWidth(52)
-        self.cron_m = QSpinBox(); self.cron_m.setRange(0, 59); self.cron_m.setFixedWidth(52)
-        self.int_h = QSpinBox(); self.int_h.setRange(0, 23); self.int_h.setSuffix("h"); self.int_h.setFixedWidth(58)
-        self.int_m = QSpinBox(); self.int_m.setRange(0, 59); self.int_m.setSuffix("m"); self.int_m.setFixedWidth(58)
+        self.cron_h = QSpinBox(); self.cron_h.setRange(0, 23); self.cron_h.setFixedWidth(50)
+        self.cron_m = QSpinBox(); self.cron_m.setRange(0, 59); self.cron_m.setFixedWidth(50)
+        self.int_h = QSpinBox(); self.int_h.setRange(0, 23); self.int_h.setSuffix("h"); self.int_h.setFixedWidth(56)
+        self.int_m = QSpinBox(); self.int_m.setRange(0, 59); self.int_m.setSuffix("m"); self.int_m.setFixedWidth(56)
         cs_layout.addWidget(self.sched_type)
         cs_layout.addWidget(QLabel("时:"))
         cs_layout.addWidget(self.cron_h)
@@ -623,17 +704,32 @@ class TaskEditorDialog(QDialog):
         bottom.addStretch()
 
         btn_cancel = QPushButton("取消")
-        btn_cancel.setFixedHeight(36)
+        btn_cancel.setFixedHeight(34)
         btn_cancel.clicked.connect(self.reject)
         self.btn_save = QPushButton("保存任务")
         self.btn_save.setObjectName("btn_save")
-        self.btn_save.setFixedHeight(36)
+        self.btn_save.setFixedHeight(34)
         self.btn_save.clicked.connect(self._save)
         bottom.addWidget(btn_cancel)
         bottom.addWidget(self.btn_save)
-        root.addLayout(bottom)
+        content_l.addLayout(bottom)
 
+        root.addWidget(content)
         self._prefill_schedule()
+
+    # ── 标题栏拖动 ──
+    def _tb_press(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def _tb_move(self, e):
+        if e.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+            self.move(e.globalPosition().toPoint() - self._drag_pos)
+
+    def _tb_release(self, e):
+        self._drag_pos = None
+
+
 
     # ──────────────────────────────────────
     #  步骤管理
