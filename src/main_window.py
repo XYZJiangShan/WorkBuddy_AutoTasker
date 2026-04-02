@@ -191,200 +191,217 @@ def build_style(c: dict) -> str:
     log_bg   = c.get("log_bg",   "#090a10")
     log_text = c.get("log_text", "#a9b1d6")
     is_light = c.get("is_light", False)
-    # 浅色主题时按钮用深字，暗色用浅字
-    btn_text  = c['text']
-    btn_text2 = c['text2']
-    # 执行/新建按钮文字固定白色（背景是深色 accent）
     btn_on_accent = "#ffffff"
-    # 浅色主题阴影
-    card_shadow = ("0 1px 4px rgba(0,0,0,.08)" if is_light
-                   else "none")
+    btn_text2 = c['text2']
+    # 浅色主题：卡片比背景略深；暗色：卡片比背景略亮
     return f"""
 QMainWindow, QWidget {{
     background-color: {c['bg']};
     color: {c['text']};
     font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
     font-size: 13px;
+    border: none;
 }}
 /* 日志 */
 QTextEdit#log_view {{
     background-color: {log_bg};
     color: {log_text};
-    border: 1px solid {c['border']};
-    border-radius: 10px;
+    border: none;
+    border-radius: 8px;
     padding: 10px 14px;
     font-family: "Consolas", "JetBrains Mono", monospace;
     font-size: 12px;
-    selection-background-color: {c['accent']}55;
+    selection-background-color: {c['accent']}40;
     selection-color: {c['text']};
 }}
-/* 搜索框 */
+/* 搜索框 — 只保留这一个有边框的元素 */
 QLineEdit#search_box {{
     background-color: {c['card']};
     color: {c['text']};
-    border: 1px solid {c['border']};
-    border-radius: 20px;
-    padding: 7px 16px 7px 38px;
+    border: 1.5px solid {c['border']};
+    border-radius: 18px;
+    padding: 6px 14px 6px 34px;
     font-size: 13px;
 }}
 QLineEdit#search_box:focus {{
-    border-color: {c['accent']};
+    border-color: {c['accent']}99;
     background-color: {c['card_hover']};
 }}
 QLineEdit#search_box::placeholder {{
     color: {c['text2']};
 }}
-/* 分割线 */
-QSplitter::handle {{ background-color: {c['border']}; }}
-QSplitter::handle:vertical {{ height: 1px; margin: 1px 0; }}
-QSplitter::handle:horizontal {{ width: 1px; }}
-/* 通用按钮 */
+/* Splitter 不可见 */
+QSplitter::handle {{ background: transparent; }}
+QSplitter::handle:vertical {{ height: 0px; }}
+QSplitter::handle:horizontal {{ width: 0px; }}
+/* 通用按钮 — 无边框，用背景色区分层次 */
 QPushButton {{
     background-color: {c['card']};
-    color: {btn_text};
-    border: 1px solid {c['border']};
-    border-radius: 8px;
-    padding: 7px 16px;
+    color: {c['text']};
+    border: none;
+    border-radius: 7px;
+    padding: 7px 15px;
     font-size: 13px;
     font-weight: 500;
 }}
 QPushButton:hover {{
     background-color: {c['card_hover']};
-    border-color: {c['accent']}88;
     color: {c['text']};
 }}
 QPushButton:pressed {{
-    background-color: {c['border']};
-    color: {c['text']};
+    background-color: {c['card_hover']};
+    opacity: 0.8;
 }}
-QPushButton:disabled {{ color: {c['text2']}55; border-color: {c['card']}; background: {c['card']}; }}
-/* 执行按钮 */
+QPushButton:disabled {{
+    color: {c['text2']}55;
+    background: transparent;
+}}
+/* 执行按钮 — accent 色实心，最突出 */
 QPushButton#btn_run {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {c['accent']}ee, stop:1 {c['accent']}aa);
+    background-color: {c['accent']};
     color: {btn_on_accent};
     border: none;
-    border-radius: 10px;
-    font-weight: 700;
+    border-radius: 7px;
+    font-weight: 600;
     font-size: 13px;
-    padding: 8px 22px;
+    padding: 7px 18px;
 }}
 QPushButton#btn_run:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {c['accent']}, stop:1 {c['accent']}cc);
-    color: {btn_on_accent};
+    background-color: {c['accent']}cc;
 }}
 QPushButton#btn_run:pressed {{
-    background: {c['accent']}99;
-    color: {btn_on_accent};
+    background-color: {c['accent']}99;
 }}
 QPushButton#btn_run:disabled {{
-    background: {c['card']};
+    background-color: {c['card']};
     color: {c['text2']};
 }}
-/* 新建按钮 */
+/* 新建按钮 — accent2 色，次重要 */
 QPushButton#btn_add {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {c['accent2']}ee, stop:1 {c['accent2']}99);
-    color: {btn_on_accent};
+    background-color: {c['accent2']}22;
+    color: {c['accent2']};
     border: none;
-    border-radius: 8px;
+    border-radius: 7px;
     font-weight: 600;
 }}
 QPushButton#btn_add:hover {{
-    background: {c['accent2']};
-    color: {btn_on_accent};
+    background-color: {c['accent2']}38;
 }}
-/* 删除按钮 */
+/* 删除按钮 — 危险色，仅文字提示，悬停才出现背景 */
 QPushButton#btn_delete {{
     background-color: transparent;
     color: {c['danger']};
-    border: 1px solid {c['danger']}44;
-    border-radius: 8px;
+    border: none;
+    border-radius: 7px;
 }}
 QPushButton#btn_delete:hover {{
     background-color: {c['danger']}18;
-    border-color: {c['danger']}88;
 }}
-QPushButton#btn_delete:disabled {{ color: {c['text2']}33; border-color: transparent; }}
-/* 编辑按钮 */
+QPushButton#btn_delete:disabled {{
+    color: {c['text2']}33;
+}}
+/* 编辑/工具按钮 — 完全透明，悬停微亮 */
 QPushButton#btn_edit {{
-    background-color: {c['card']};
+    background-color: transparent;
     color: {btn_text2};
-    border: 1px solid {c['border']};
+    border: none;
 }}
 QPushButton#btn_edit:hover {{
-    color: {c['text']};
-    border-color: {c['accent']}66;
     background-color: {c['card_hover']};
+    color: {c['text']};
 }}
-QPushButton#btn_edit:disabled {{ color: {c['text2']}33; border-color: transparent; }}
-/* 主题按钮 */
+QPushButton#btn_edit:disabled {{
+    color: {c['text2']}33;
+}}
+/* 主题/图标按钮 */
 QPushButton#btn_theme {{
     background-color: transparent;
     color: {btn_text2};
-    border: 1px solid {c['border']};
-    border-radius: 8px;
-    padding: 6px 10px;
+    border: none;
+    border-radius: 7px;
+    padding: 6px 8px;
     font-size: 15px;
 }}
 QPushButton#btn_theme:hover {{
-    background-color: {c['card']};
-    border-color: {c['accent']}66;
+    background-color: {c['card_hover']};
     color: {c['text']};
 }}
-/* 滚动条 */
+/* 窗口控制按钮 */
+QPushButton#btn_win_ctrl {{
+    background: transparent;
+    color: {c['text2']};
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 400;
+    padding: 0;
+}}
+QPushButton#btn_win_ctrl:hover {{
+    background: {c['card_hover']};
+    color: {c['text']};
+}}
+QPushButton#btn_win_close {{
+    background: transparent;
+    color: {c['text2']};
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    padding: 0;
+}}
+QPushButton#btn_win_close:hover {{
+    background: {c['danger']};
+    color: #ffffff;
+}}
+/* 滚动条 — 极细，几乎隐形 */
 QScrollArea {{ border: none; background: transparent; }}
 QScrollBar:vertical {{
-    background: transparent; width: 4px; margin: 4px 0;
+    background: transparent; width: 3px; margin: 2px 0;
 }}
 QScrollBar::handle:vertical {{
     background: {c['border']};
-    border-radius: 2px; min-height: 32px;
+    border-radius: 2px; min-height: 24px;
 }}
-QScrollBar::handle:vertical:hover {{ background: {c['accent']}88; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; border: none; }}
+QScrollBar::handle:vertical:hover {{ background: {c['text2']}; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
-QScrollBar:horizontal {{
-    background: transparent; height: 4px;
-}}
+QScrollBar:horizontal {{ background: transparent; height: 3px; }}
 QScrollBar::handle:horizontal {{
-    background: {c['border']}; border-radius: 2px; min-width: 32px;
+    background: {c['border']}; border-radius: 2px; min-width: 24px;
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
-/* 菜单 */
+/* 菜单 — 细腻浮层 */
 QMenu {{
     background-color: {c['panel']};
-    border: 1px solid {c['border']};
+    border: 1px solid {c['border']}66;
     border-radius: 10px;
-    padding: 6px 4px;
+    padding: 5px 3px;
     color: {c['text']};
     font-size: 13px;
 }}
 QMenu::item {{
-    padding: 8px 22px 8px 16px;
+    padding: 7px 20px 7px 14px;
     border-radius: 6px;
-    margin: 1px 4px;
+    margin: 1px 3px;
 }}
 QMenu::item:selected {{
     background-color: {c['card_hover']};
-    color: {c['accent']};
+    color: {c['text']};
 }}
 QMenu::separator {{
     height: 1px;
-    background: {c['border']};
-    margin: 4px 12px;
+    background: {c['border']}66;
+    margin: 3px 10px;
 }}
 /* MessageBox */
 QMessageBox {{
     background-color: {c['panel']};
     color: {c['text']};
 }}
-/* ListWidget（分类管理）*/
+/* ListWidget */
 QListWidget {{
     background-color: {c['card']};
     color: {c['text']};
-    border: 1px solid {c['border']};
+    border: none;
     border-radius: 8px;
     outline: none;
 }}
@@ -400,49 +417,19 @@ QListWidget::item:selected {{
 QLineEdit {{
     background-color: {c['card']};
     color: {c['text']};
-    border: 1px solid {c['border']};
+    border: none;
     border-radius: 6px;
     padding: 5px 10px;
 }}
 QLineEdit:focus {{
-    border-color: {c['accent']};
+    background-color: {c['card_hover']};
 }}
 /* 对话框 */
 QDialog {{
     background-color: {c['bg']};
     color: {c['text']};
 }}
-/* DialogButtonBox */
-QDialogButtonBox QPushButton {{
-    min-width: 72px;
-}}
-/* 窗口控制按钮（最小化）*/
-QPushButton#btn_win_ctrl {{
-    background: transparent;
-    color: {c['text2']};
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    padding: 0;
-}}
-QPushButton#btn_win_ctrl:hover {{
-    background: {c['card_hover']};
-    color: {c['text']};
-}}
-/* 窗口控制按钮（关闭）*/
-QPushButton#btn_win_close {{
-    background: transparent;
-    color: {c['text2']};
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    padding: 0;
-}}
-QPushButton#btn_win_close:hover {{
-    background: {c['danger']};
-    color: #ffffff;
-}}
+QDialogButtonBox QPushButton {{ min-width: 72px; }}
 """
 
 STYLE = build_style(C)
@@ -796,7 +783,6 @@ class MainWindow(QMainWindow):
         self._drag_pos = None
 
         central = QWidget()
-        central.setStyleSheet(f"QWidget {{ border: 1px solid {C['border']}; }}")
         self._central_widget = central
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
@@ -809,7 +795,7 @@ class MainWindow(QMainWindow):
         header = QWidget()
         self._header_widget = header
         header.setFixedHeight(56)
-        header.setStyleSheet(f"background-color:{C['panel']};border-bottom:1px solid {C['border']};")
+        header.setStyleSheet(f"background-color:{C['panel']};")
         # 鼠标拖动支持
         header.mousePressEvent   = self._header_mouse_press
         header.mouseMoveEvent    = self._header_mouse_move
@@ -869,12 +855,7 @@ class MainWindow(QMainWindow):
         hl.addStretch()
         hl.addWidget(self.status_lbl)
         hl.addWidget(self.btn_theme)
-        # 分隔
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setFixedWidth(1)
-        sep.setStyleSheet(f"background:{C['border']};margin:12px 2px;")
-        hl.addWidget(sep)
+        hl.addSpacing(4)
         hl.addWidget(self.btn_win_min)
         hl.addWidget(self.btn_win_close)
         root.addWidget(header)
@@ -945,7 +926,7 @@ class MainWindow(QMainWindow):
         # ── 单行操作栏：任务名 + 全部按钮 ──
         self.detail_panel = QFrame()
         self.detail_panel.setStyleSheet(
-            f"background-color:{C['panel']};border:1px solid {C['border']};border-radius:12px;")
+            f"background-color:{C['panel']};border-radius:10px;")
         self.detail_panel.setFixedHeight(54)
         dp = QHBoxLayout(self.detail_panel)
         dp.setContentsMargins(16, 0, 12, 0)
@@ -963,11 +944,7 @@ class MainWindow(QMainWindow):
         dp.addWidget(self.detail_name)
         dp.addWidget(self.detail_steps, stretch=1)
 
-        # 分隔竖线
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setStyleSheet(f"background:{C['border']};max-width:1px;margin:10px 0;")
-        dp.addWidget(sep)
+        dp.addSpacing(8)
 
         # 按钮：执行 | 编辑 | 删除 | 日志
         self.btn_run = QPushButton("▶  执行")
@@ -1021,7 +998,7 @@ class MainWindow(QMainWindow):
         self.btn_clear = QPushButton("清空")
         self.btn_clear.setFixedSize(48, 24)
         self.btn_clear.setStyleSheet(
-            f"font-size:11px;padding:0;background:{C['card']};border:1px solid {C['border']};"
+            f"font-size:11px;padding:0 8px;background:{C['card']};border:none;"
             f"border-radius:5px;color:{C['text2']};")
         self.btn_clear.clicked.connect(lambda: self.log_view.clear())
         log_bar.addWidget(log_title)
@@ -1093,7 +1070,7 @@ class MainWindow(QMainWindow):
                 div = QFrame()
                 div.setFrameShape(QFrame.Shape.HLine)
                 div.setStyleSheet(
-                    f"background-color:{C['border']};max-height:1px;margin:6px 0;border:none;")
+                    f"background-color:{C['border']}55;max-height:1px;margin:4px 0;border:none;")
                 self.scroll_vl.insertWidget(self.scroll_vl.count() - 1, div)
 
             # 分类 section widget
@@ -1364,19 +1341,19 @@ class MainWindow(QMainWindow):
         # Header
         if hasattr(self, '_header_widget'):
             self._header_widget.setStyleSheet(
-                f"background-color:{C['panel']};border-bottom:1px solid {C['border']};")
+                f"background-color:{C['panel']};")
         if hasattr(self, '_body_widget'):
             self._body_widget.setStyleSheet(f"background-color:{C['bg']};")
         # 标题文字
         if hasattr(self, '_title_lbl'):
             self._title_lbl.setStyleSheet(
-                f"font-size:17px;font-weight:bold;color:{C['text']};background:transparent;letter-spacing:0.5px;")
+                f"font-size:16px;font-weight:bold;color:{C['text']};background:transparent;letter-spacing:0.5px;")
         # 状态标签
         self.status_lbl.setStyleSheet(
             f"color:{C['text2']};font-size:12px;background:transparent;")
         # 底部操作栏
         self.detail_panel.setStyleSheet(
-            f"background-color:{C['panel']};border:1px solid {C['border']};border-radius:12px;")
+            f"background-color:{C['panel']};border-radius:10px;")
         self.detail_name.setStyleSheet(
             f"font-size:14px;font-weight:bold;color:{C['text']};background:transparent;")
         self.detail_steps.setStyleSheet(
@@ -1384,7 +1361,7 @@ class MainWindow(QMainWindow):
         # 清空按钮
         if hasattr(self, 'btn_clear'):
             self.btn_clear.setStyleSheet(
-                f"font-size:11px;padding:0;background:{C['card']};border:1px solid {C['border']};"
+                f"font-size:11px;padding:0 8px;background:{C['card']};border:none;"
                 f"border-radius:5px;color:{C['text2']};")
 
     def _refresh_header_style(self):
@@ -1684,17 +1661,17 @@ class GroupManagerDialog(QDialog):
         c = C
         self.setStyleSheet(f"""
             QDialog {{ background:{c['bg']}; color:{c['text']}; }}
-            QListWidget {{ background:{c['card']}; border:1px solid {c['border']};
+            QListWidget {{ background:{c['card']}; border:none;
                 border-radius:8px; color:{c['text']}; font-size:13px; outline:none; }}
             QListWidget::item {{ padding:8px 12px; border-radius:6px; margin:1px 4px; }}
             QListWidget::item:selected {{ background:{c['card_hover']}; color:{c['accent']}; }}
-            QPushButton {{ background:{c['card']}; color:{c['text2']}; border:1px solid {c['border']};
+            QPushButton {{ background:{c['card']}; color:{c['text2']}; border:none;
                 border-radius:7px; padding:6px 14px; font-size:12px; }}
-            QPushButton:hover {{ background:{c['card_hover']}; color:{c['text']}; border-color:{c['accent']}66; }}
-            QPushButton#btn_add {{ background:{c['accent2']}cc; color:#fff; border:none; font-weight:600; }}
-            QPushButton#btn_add:hover {{ background:{c['accent2']}; color:#fff; }}
-            QPushButton#btn_del {{ background:{c['danger']}22; color:{c['danger']}; border:1px solid {c['danger']}44; }}
-            QPushButton#btn_del:hover {{ background:{c['danger']}33; border-color:{c['danger']}88; }}
+            QPushButton:hover {{ background:{c['card_hover']}; color:{c['text']}; }}
+            QPushButton#btn_add {{ background:{c['accent2']}22; color:{c['accent2']}; font-weight:600; }}
+            QPushButton#btn_add:hover {{ background:{c['accent2']}38; }}
+            QPushButton#btn_del {{ background:transparent; color:{c['danger']}; }}
+            QPushButton#btn_del:hover {{ background:{c['danger']}18; }}
             QLabel {{ color:{c['text']}; background:transparent; }}
         """)
 
@@ -1739,11 +1716,9 @@ class GroupManagerDialog(QDialog):
         bb = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bb.setStyleSheet(f"""
-            QPushButton {{ background:{c['card']}; color:{c['text']}; border:1px solid {c['border']};
+            QPushButton {{ background:{c['card']}; color:{c['text']}; border:none;
                 border-radius:7px; padding:6px 18px; }}
-            QPushButton:hover {{ background:{c['card_hover']}; border-color:{c['accent']}66; }}
-            QPushButton[text="OK"], QPushButton[text="确定"] {{
-                background:{c['accent']}cc; color:#fff; border:none; font-weight:600; }}
+            QPushButton:hover {{ background:{c['card_hover']}; }}
         """)
         bb.accepted.connect(self._on_ok)
         bb.rejected.connect(self.reject)
