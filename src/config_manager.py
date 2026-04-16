@@ -26,25 +26,54 @@ DEFAULT_GROUPS: List[Dict[str, Any]] = [
 ]
 
 
+# ---------- 原子写入工具 ----------
+def _atomic_write(path: Path, data: str):
+    """先写临时文件，再原子重命名，防止写到一半崩溃导致数据清零"""
+    tmp = path.with_suffix(".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(path)
+    except Exception:
+        if tmp.exists():
+            tmp.unlink()
+        raise
+
+
+def _safe_load_json(path: Path, default):
+    """读取 JSON，自动跳过全零字节损坏文件"""
+    if not path.exists():
+        return default
+    try:
+        raw = path.read_bytes()
+        if not raw or all(b == 0 for b in raw[:64]):
+            # 文件全零，已损坏，备份后返回默认值
+            path.rename(path.with_suffix(".corrupted"))
+            return default
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return default
+
+
+
+
+
 # ---------- 分类持久化 ----------
 def load_groups() -> List[Dict[str, Any]]:
     ensure_config_dir()
-    if not GROUPS_FILE.exists():
+    data = _safe_load_json(GROUPS_FILE, None)
+    if not data or not isinstance(data, list):
         return [g.copy() for g in DEFAULT_GROUPS]
-    try:
-        with open(GROUPS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if not data:
-                return [g.copy() for g in DEFAULT_GROUPS]
-            return data
-    except Exception:
-        return [g.copy() for g in DEFAULT_GROUPS]
+    return data
 
 
 def save_groups(groups: List[Dict[str, Any]]):
     ensure_config_dir()
-    with open(GROUPS_FILE, "w", encoding="utf-8") as f:
-        json.dump(groups, f, ensure_ascii=False, indent=2)
+    _atomic_write(GROUPS_FILE, json.dumps(groups, ensure_ascii=False, indent=2))
+
+
 
 
 def new_group(name: str, emoji: str = "📁", order: int = 99) -> Dict[str, Any]:
@@ -120,20 +149,15 @@ def migrate_tasks(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # ---------- 任务持久化 ----------
 def load_tasks() -> List[Dict[str, Any]]:
     ensure_config_dir()
-    if not CONFIG_FILE.exists():
-        return []
-    try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            tasks = json.load(f)
-            return migrate_tasks(tasks)
-    except Exception:
-        return []
+    tasks = _safe_load_json(CONFIG_FILE, [])
+    if not isinstance(tasks, list):
+        tasks = []
+    return migrate_tasks(tasks)
 
 
 def save_tasks(tasks: List[Dict[str, Any]]):
     ensure_config_dir()
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(tasks, f, ensure_ascii=False, indent=2)
+    _atomic_write(CONFIG_FILE, json.dumps(tasks, ensure_ascii=False, indent=2))
 
 
 def load_settings() -> Dict[str, Any]:
@@ -144,19 +168,15 @@ def load_settings() -> Dict[str, Any]:
         "theme": "nebula",
         "log_max_lines": 500,
     }
-    if not SETTINGS_FILE.exists():
-        return defaults
-    try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            defaults.update(data)
-            return defaults
-    except Exception:
-        return defaults
+    data = _safe_load_json(SETTINGS_FILE, {})
+    if isinstance(data, dict):
+        defaults.update(data)
+    return defaults
 
 
 def save_settings(settings: Dict[str, Any]):
     ensure_config_dir()
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(settings, f, ensure_ascii=False, indent=2)
+    _atomic_write(SETTINGS_FILE, json.dumps(settings, ensure_ascii=False, indent=2))
+
+
 
