@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon, QMenu, QMessageBox, QScrollArea, QGridLayout,
     QFileIconProvider, QLineEdit, QGraphicsDropShadowEffect,
     QDialog, QDialogButtonBox, QListWidget, QListWidgetItem,
-    QInputDialog, QComboBox,
+    QInputDialog, QComboBox, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QMimeData, QPoint, QFileInfo, QPropertyAnimation, QEasingCurve, QRectF
 from PyQt6.QtGui import QIcon, QFont, QColor, QAction, QPixmap, QPainter, QPen, QBrush, QDrag, QLinearGradient, QPainterPath
@@ -910,6 +910,7 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setHandleWidth(1)
+        self.splitter = splitter
 
         # ── 上：任务网格区 ──
         top = QWidget()
@@ -986,7 +987,7 @@ class MainWindow(QMainWindow):
 
         dp.addSpacing(8)
 
-        # 按钮：执行 | 编辑 | 删除 | 日志
+        # 按钮：执行 | 编辑 | 日志（删除请右键任务卡片）
         self.btn_run = QPushButton("▶  执行")
         self.btn_run.setObjectName("btn_run")
         self.btn_run.setFixedHeight(34)
@@ -1001,13 +1002,6 @@ class MainWindow(QMainWindow):
         self.btn_edit2.setEnabled(False)
         self.btn_edit2.clicked.connect(self._edit_task)
 
-        self.btn_del2 = QPushButton("删除")
-        self.btn_del2.setObjectName("btn_delete")
-        self.btn_del2.setFixedHeight(34)
-        self.btn_del2.setMinimumWidth(60)
-        self.btn_del2.setEnabled(False)
-        self.btn_del2.clicked.connect(self._delete_task)
-
         # 日志展开/折叠按钮
         self._log_visible = False
         self.btn_log_toggle = QPushButton("📋  日志")
@@ -1020,7 +1014,6 @@ class MainWindow(QMainWindow):
 
         dp.addWidget(self.btn_run)
         dp.addWidget(self.btn_edit2)
-        dp.addWidget(self.btn_del2)
         dp.addWidget(self.btn_log_toggle)
         bot_l.addWidget(self.detail_panel)
 
@@ -1049,17 +1042,19 @@ class MainWindow(QMainWindow):
         self.log_view = QTextEdit()
         self.log_view.setObjectName("log_view")
         self.log_view.setReadOnly(True)
-        self.log_view.setFixedHeight(160)
+        self.log_view.setMinimumHeight(160)
+        self.log_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.log_view.setPlaceholderText("任务执行日志将在这里显示...")
-        log_vl.addWidget(self.log_view)
+        log_vl.addWidget(self.log_view, 1)
 
         self.log_container.setVisible(False)
-        bot_l.addWidget(self.log_container)
+        bot_l.addWidget(self.log_container, 1)
 
         splitter.addWidget(bot)
         splitter.setSizes([9999, 1])
         splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
+        splitter.setStretchFactor(1, 1)
         bl.addWidget(splitter)
         root.addWidget(body)
 
@@ -1495,12 +1490,18 @@ class MainWindow(QMainWindow):
         self._log_visible = checked
         self.log_container.setVisible(checked)
         self.btn_log_toggle.setText("📋  日志 ▲" if checked else "📋  日志")
+        # 展开时把底部空间让给日志（上下约 4:6，日志占更多）
+        if hasattr(self, "splitter"):
+            total = max(self.splitter.height(), 600)
+            if checked:
+                self.splitter.setSizes([int(total * 0.4), int(total * 0.6)])
+            else:
+                self.splitter.setSizes([total, 1])
 
     def _update_detail(self, task: Optional[Dict]):
         has = task is not None
         self.btn_run.setEnabled(has)
         self.btn_edit2.setEnabled(has)
-        self.btn_del2.setEnabled(has)
         if not task:
             self.detail_name.setText("← 选择一个任务")
             self.detail_steps.setText("")
@@ -1624,10 +1625,8 @@ class MainWindow(QMainWindow):
     def _append_log(self, msg: str):
         # 任务开始时自动展开日志
         if not self._log_visible and ("▶" in msg or "开始执行" in msg):
-            self._log_visible = True
-            self.log_container.setVisible(True)
             self.btn_log_toggle.setChecked(True)
-            self.btn_log_toggle.setText("📋  日志 ▲")
+            self._toggle_log(True)
 
         # 根据内容着色
         if "✅" in msg or "成功" in msg or "完成" in msg:
