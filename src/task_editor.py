@@ -3,6 +3,7 @@
 布局：自定义标题栏 + 上方基本信息 + 中间左右分栏（步骤列表 | 步骤配置）+ 下方定时/保存
 """
 from typing import Dict, Any, List, Optional
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QCheckBox,
@@ -303,9 +304,9 @@ class UEProjectPanel(QWidget):
             lambda: self._browse_file(self.uproject, "UE项目 (*.uproject)")))
 
         self.engine = QLineEdit(action.get("engine_path", ""))
-        self.engine.setPlaceholderText("引擎根目录，留空自动检测")
-        layout.addLayout(_field_row("引擎目录", self.engine,
-            lambda: self._browse_dir(self.engine)))
+        self.engine.setPlaceholderText("引擎根目录，可直接选 UnrealEditor.exe 自动识别；留空自动检测")
+        layout.addLayout(_field_row("引擎路径", self.engine,
+            lambda: self._browse_engine(self.engine)))
 
         layout.addSpacing(4)
         layout.addWidget(_section("执行步骤"))
@@ -359,7 +360,7 @@ class UEProjectPanel(QWidget):
         self.build_opts.setVisible(self.do_build.isChecked())
         layout.addWidget(self.build_opts)
 
-        layout.addWidget(_hint("💡 引擎目录留空时自动从项目路径/常见安装位置检测"))
+        layout.addWidget(_hint("💡 引擎路径可选 UnrealEditor.exe / UE4Editor.exe / UnrealBuildTool.exe，会自动反推引擎根目录；留空则从项目路径与常见安装位置检测"))
         layout.addStretch()
 
     def _browse_file(self, edit: QLineEdit, filt: str):
@@ -371,6 +372,47 @@ class UEProjectPanel(QWidget):
         path = QFileDialog.getExistingDirectory(self, "选择文件夹")
         if path:
             edit.setText(path)
+
+    def _browse_engine(self, edit: QLineEdit):
+        """引擎路径：先让用户选 exe（自动反推引擎根），取消则退回到选文件夹"""
+        start_dir = edit.text().strip() or ""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择 UE 引擎可执行文件（取消可改为选文件夹）",
+            start_dir,
+            "UE 可执行文件 (UnrealEditor.exe UE4Editor.exe UnrealBuildTool.exe);;所有 exe (*.exe);;所有文件 (*.*)"
+        )
+        if path:
+            root = self._resolve_engine_root_from_exe(path)
+            edit.setText(root or path)
+            return
+        # 用户取消 → 退回选文件夹模式
+        folder = QFileDialog.getExistingDirectory(self, "选择引擎根目录", start_dir)
+        if folder:
+            edit.setText(folder)
+
+    @staticmethod
+    def _resolve_engine_root_from_exe(exe_path: str) -> str:
+        """从一个 UE 可执行文件向上回溯，找到包含 Engine/Binaries 或 Engine/Build 的引擎根目录。
+
+        典型：<root>/Engine/Binaries/Win64/UnrealEditor.exe  → 返回 <root>
+        找不到时返回空串。
+        """
+        try:
+            p = Path(exe_path).resolve()
+            if p.is_file():
+                cur = p.parent
+            else:
+                cur = p
+            # 向上最多回溯 8 层
+            for _ in range(8):
+                if (cur / "Engine" / "Binaries").is_dir() or (cur / "Engine" / "Build").is_dir():
+                    return str(cur)
+                if cur.parent == cur:
+                    break
+                cur = cur.parent
+        except Exception:
+            return ""
+        return ""
 
     def _toggle_build_opts(self, checked: bool):
         self.build_opts.setVisible(checked)
