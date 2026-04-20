@@ -164,10 +164,25 @@ class TaskExecutor:
                 timeout=600,
             )
             output = (result.stdout + result.stderr).strip()
-            if result.returncode == 0:
+            # P4 有时返回 0 但 stderr 里报错（比如 "file(s) not in client view"），
+            # 这类属于实际失败，需要单独识别
+            p4_err_keywords = [
+                "not in client view",
+                "no such file",
+                "access denied",
+                "client unknown",
+                "client '", "unknown",  # "Client 'xxx' unknown."
+                "your session has expired",
+                "password invalid",
+                "perforce password (p4passwd) invalid",
+            ]
+            lower_out = output.lower()
+            hit = next((kw for kw in p4_err_keywords if kw in lower_out), None)
+            if result.returncode == 0 and not hit:
                 return ActionResult(True, f"[{label}] P4 Sync 成功: {depot_path}", output)
             else:
-                return ActionResult(False, f"[{label}] P4 Sync 失败 (code {result.returncode})", output)
+                code_part = f"code {result.returncode}" if result.returncode != 0 else f"命中错误关键字: {hit}"
+                return ActionResult(False, f"[{label}] P4 Sync 失败 ({code_part})", output)
         except FileNotFoundError:
             return ActionResult(False, f"[{label}] 未找到 p4 命令，请确保 Perforce 客户端已安装并在 PATH 中")
 
@@ -253,7 +268,12 @@ class TaskExecutor:
                 )
                 output = (result.stdout + result.stderr).strip()
                 if result.returncode != 0:
-                    return ActionResult(False, f"[{label}] Generate VS Files 失败 (code {result.returncode})", output)
+                    # 识别已知环境问题，给出可执行的修复指引
+                    hint = self._diagnose_ubt_error(output)
+                    msg = f"[{label}] Generate VS Files 失败 (code {result.returncode})"
+                    if hint:
+                        msg += f"\n💡 {hint}"
+                    return ActionResult(False, msg, output)
                 logs.append("Generate VS Files 成功")
                 self._log(f"  ✅ Generate VS Files 完成")
                 if output:
@@ -480,6 +500,25 @@ class TaskExecutor:
             pass
 
         return None
+
+    # ---- UE 辅助：诊断 UBT 生成/编译失败 ----
+    @staticmethod
+    def _diagnose_ubt_error(output: str) -> str:
+        """根据 UBT 输出匹配已知环境问题，返回可执行的修复提示。找不到则返回空串。"""
+        if not output:
+            return ""
+        low = output.lower()
+        # .NET 运行时缺少 System.CodeDom 等程序集（典型为未装 .NET SDK 或源码版未跑 Setup.bat）
+        if "system.codedom" in low or "could not load file or assembly" in low:
+            return ("UBT 动态编译缺少 .NET 程序集。修复顺序：\n"
+                    "  1) 执行 `dotnet --list-sdks` 检查是否装了 .NET 8 SDK，没有请安装 x64 版；\n"
+                    "  2) 源码版 UE 请在引擎根目录运行 `Setup.bat` 拉取依赖；\n"
+                    "  3) 仍不行可把 SDK 下的 System.CodeDom.dll 复制到 Engine/Binaries/DotNET/UnrealBuildTool/。")
+        if "the sdk 'microsoft.net.sdk' specified could not be found" in low or "a compatible .net sdk was not found" in low:
+            return "未检测到 .NET SDK，请安装 .NET 8 SDK (x64)。"
+        if "vswhere" in low and "not found" in low:
+            return "未找到 Visual Studio 安装，请先安装 VS 2022 并勾选 C++ / .NET 桌面工作负载。"
+        return ""
 
     # ---- 执行整个任务（按序执行所有 actions）----
     def execute_task(
