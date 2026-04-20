@@ -626,14 +626,10 @@ class TaskEditorDialog(QDialog):
         self.desc_edit.setPlaceholderText("可选")
         self.desc_edit.setFixedHeight(32)
 
-        self.enabled_check = QCheckBox("启用")
-        self.enabled_check.setChecked(self.task.get("enabled", True))
-
         info_row.addWidget(name_lbl)
         info_row.addWidget(self.name_edit, stretch=2)
         info_row.addWidget(desc_lbl)
         info_row.addWidget(self.desc_edit, stretch=3)
-        info_row.addWidget(self.enabled_check)
         content_l.addLayout(info_row)
         content_l.addWidget(_sep())
 
@@ -958,7 +954,8 @@ class TaskEditorDialog(QDialog):
 
         self.task["name"] = name
         self.task["description"] = self.desc_edit.text().strip()
-        self.task["enabled"] = self.enabled_check.isChecked()
+        # 移除了任务级启用开关；为避免历史数据里 enabled=False 导致任务无法运行，统一置 True
+        self.task["enabled"] = True
         self.task["schedule"] = self._build_schedule()
 
         actions = []
