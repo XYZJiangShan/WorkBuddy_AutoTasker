@@ -346,6 +346,9 @@ class TaskExecutor:
 
         # ---- 2. Generate VS Project Files ----
         if do_generate:
+            # 2.0 前置检查：UBT 动态编译依赖 System.CodeDom.dll，缺失则自动补齐
+            self._ensure_ubt_codedom_dll(gen_script)
+
             self._log(f"  → 正在生成 VS 工程文件...")
             # 判断是 bat 还是 UBT.exe
             if gen_script.suffix.lower() == ".bat":
@@ -610,6 +613,80 @@ class TaskExecutor:
 
         return None
 
+    # ---- UE 辅助：确保 UBT 目录下有 System.CodeDom.dll（lib/net8.0/ 子目录）----
+    def _ensure_ubt_codedom_dll(self, gen_script: Path) -> None:
+        """
+        UBT 动态编译 *.Build.cs 时会 Assembly.Load("System.CodeDom")，
+        .NET 运行时按 deps.json 登记的相对路径 lib/net8.0/System.CodeDom.dll
+        构建 TPA 列表。部分腾讯源码版 UE 缺失这个子目录/文件，导致
+        FileNotFoundException: System.CodeDom。此处做前置自动修复。
+
+        仅当 gen_script 是 UnrealBuildTool.exe 时处理；bat 模式无需。
+        """
+        try:
+            if gen_script.suffix.lower() != ".exe":
+                return
+            if gen_script.name.lower() != "unrealbuildtool.exe":
+                return
+            ubt_dir = gen_script.parent
+            target = ubt_dir / "lib" / "net8.0" / "System.CodeDom.dll"
+            if target.exists() and target.stat().st_size > 100 * 1024:
+                return  # 已存在且大小合理（>100KB），跳过
+
+            # 在本机 .NET 8 SDK 里找一份 System.CodeDom.dll
+            src = self._locate_system_codedom_dll()
+            if not src:
+                self._log("  ⚠️ 未找到 System.CodeDom.dll 源文件（需要 .NET 8 SDK），跳过自动补齐")
+                return
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy2(str(src), str(target))
+            self._log(f"  🔧 已自动补齐 System.CodeDom.dll → {target}")
+        except Exception as e:
+            # 前置修复失败不阻断主流程，继续走后面的 UBT 调用
+            self._log(f"  ⚠️ System.CodeDom.dll 自动补齐失败: {e}")
+
+    @staticmethod
+    def _locate_system_codedom_dll() -> Optional[Path]:
+        """
+        从本机 .NET 8 SDK 里定位 System.CodeDom.dll。
+        优先 dotnet sdk 根目录（直接存在），再兜底到 NuGet 包缓存。
+        """
+        # 1. dotnet SDK 根目录：C:\Program Files\dotnet\sdk\<ver>\System.CodeDom.dll
+        sdk_roots = [
+            Path(r"C:\Program Files\dotnet\sdk"),
+            Path(r"C:\Program Files (x86)\dotnet\sdk"),
+        ]
+        for root in sdk_roots:
+            if not root.exists():
+                continue
+            # 取版本号最高的一个 SDK 目录
+            sdk_dirs = sorted(
+                [d for d in root.iterdir() if d.is_dir() and d.name[:1].isdigit()],
+                key=lambda d: d.name,
+                reverse=True,
+            )
+            for d in sdk_dirs:
+                cand = d / "System.CodeDom.dll"
+                if cand.exists() and cand.stat().st_size > 100 * 1024:
+                    return cand
+
+        # 2. NuGet 包缓存兜底
+        nuget_roots = [
+            Path.home() / ".nuget" / "packages" / "system.codedom",
+            Path(r"C:\Program Files (x86)\Microsoft SDKs\NuGetPackages\system.codedom"),
+        ]
+        for root in nuget_roots:
+            if not root.exists():
+                continue
+            matches = list(root.glob("*/lib/net*/System.CodeDom.dll"))
+            matches.sort(key=lambda p: p.stat().st_size, reverse=True)
+            for p in matches:
+                if p.stat().st_size > 100 * 1024:
+                    return p
+        return None
+
     # ---- UE 辅助：诊断 UBT 生成/编译失败 ----
     @staticmethod
     def _diagnose_ubt_error(output: str) -> str:
@@ -617,12 +694,13 @@ class TaskExecutor:
         if not output:
             return ""
         low = output.lower()
-        # .NET 运行时缺少 System.CodeDom 等程序集（典型为未装 .NET SDK 或源码版未跑 Setup.bat）
+        # .NET 运行时缺少 System.CodeDom 等程序集（典型为未装 .NET SDK 或 UBT\lib\net8.0 目录缺失）
         if "system.codedom" in low or "could not load file or assembly" in low:
-            return ("UBT 动态编译缺少 .NET 程序集。修复顺序：\n"
-                    "  1) 执行 `dotnet --list-sdks` 检查是否装了 .NET 8 SDK，没有请安装 x64 版；\n"
-                    "  2) 源码版 UE 请在引擎根目录运行 `Setup.bat` 拉取依赖；\n"
-                    "  3) 仍不行可把 SDK 下的 System.CodeDom.dll 复制到 Engine/Binaries/DotNET/UnrealBuildTool/。")
+            return ("UBT 动态编译缺少 System.CodeDom.dll。AutoTasker 已在 Generate 前自动补齐，"
+                    "若仍然失败请手动执行：\n"
+                    "  1) `dotnet --list-sdks` 确认已装 .NET 8 SDK (x64)；\n"
+                    "  2) 把 SDK 下 System.CodeDom.dll 复制到 "
+                    "`<UE>/Engine/Binaries/DotNET/UnrealBuildTool/lib/net8.0/`（目录不存在则先创建）。")
         if "the sdk 'microsoft.net.sdk' specified could not be found" in low or "a compatible .net sdk was not found" in low:
             return "未检测到 .NET SDK，请安装 .NET 8 SDK (x64)。"
         if "vswhere" in low and "not found" in low:
