@@ -153,17 +153,86 @@ class TaskExecutor:
             cmd.append("-f")
         cmd.append(depot_path)
 
+        self._log(f"  → 开始同步: {depot_path}")
+        if force:
+            self._log(f"  ⚠️  已启用强制同步 (-f)，将重新下载所有文件")
+
         try:
-            result = subprocess.run(
+            import time
+            proc = subprocess.Popen(
                 cmd,
                 env=env,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # 合流，简化读取
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=600,
+                bufsize=1,  # 行缓冲
             )
-            output = (result.stdout + result.stderr).strip()
+
+            # 分类统计 + 进度心跳
+            added = updated = deleted = refreshed = other = 0
+            last_sample_line = ""
+            start_ts = time.time()
+            last_beat_ts = start_ts
+            captured_tail: list[str] = []  # 只留最后若干行用于错误诊断
+            TAIL_MAX = 200
+            BEAT_INTERVAL = 2.0  # 秒
+
+            assert proc.stdout is not None
+            for raw in proc.stdout:
+                line = raw.rstrip()
+                if not line:
+                    continue
+
+                # 保留尾部日志（错误诊断用）
+                captured_tail.append(line)
+                if len(captured_tail) > TAIL_MAX:
+                    captured_tail.pop(0)
+
+                low = line.lower()
+                # 典型 p4 sync 输出：
+                #   //depot/... - added as E:\...
+                #   //depot/... - updating E:\...
+                #   //depot/... - deleted as E:\...
+                #   //depot/... - refreshing E:\...
+                if " - added as " in line or " - added " in low:
+                    added += 1
+                elif " - updating " in line or " - updated " in low:
+                    updated += 1
+                elif " - deleted as " in line or " - deleted " in low:
+                    deleted += 1
+                elif " - refreshing " in line or " - refreshed " in low:
+                    refreshed += 1
+                else:
+                    other += 1
+
+                last_sample_line = line
+
+                # 每 BEAT_INTERVAL 秒打一次心跳
+                now = time.time()
+                if now - last_beat_ts >= BEAT_INTERVAL:
+                    total = added + updated + deleted + refreshed
+                    elapsed = int(now - start_ts)
+                    self._log(
+                        f"  ⏳ 同步中… 已处理 {total} 个文件 "
+                        f"(+{added} 新增 / ~{updated} 更新 / -{deleted} 删除 / ↻{refreshed} 刷新) "
+                        f"耗时 {elapsed}s"
+                    )
+                    last_beat_ts = now
+
+            proc.wait(timeout=600)
+            elapsed = int(time.time() - start_ts)
+            output = "\n".join(captured_tail)
+
+            # 汇总一行
+            total = added + updated + deleted + refreshed
+            summary = (
+                f"共 {total} 个文件："
+                f"+{added} 新增 / ~{updated} 更新 / -{deleted} 删除 / ↻{refreshed} 刷新"
+                f"，耗时 {elapsed}s"
+            )
+
             # P4 有时返回 0 但 stderr 里报错（比如 "file(s) not in client view"），
             # 这类属于实际失败，需要单独识别；同时给出"人话"提示
             # 关键字按特异性从高到低排列，命中第一个即停
@@ -196,18 +265,24 @@ class TaskExecutor:
 
             # "file(s) up-to-date" 是成功场景，单独放行
             if hit and hit[0] == "file(s) up-to-date":
-                return ActionResult(True, f"[{label}] P4 Sync 完成: {hit[1]}", output)
+                return ActionResult(True, f"[{label}] P4 Sync 完成：{hit[1]}", output)
 
-            if result.returncode == 0 and not hit:
-                return ActionResult(True, f"[{label}] P4 Sync 成功: {depot_path}", output)
+            if proc.returncode == 0 and not hit:
+                return ActionResult(True, f"[{label}] P4 Sync 成功（{summary}）", output)
             else:
                 if hit:
                     reason = hit[1]
-                elif result.returncode != 0:
-                    reason = f"p4 进程返回错误码 {result.returncode}"
+                elif proc.returncode != 0:
+                    reason = f"p4 进程返回错误码 {proc.returncode}"
                 else:
                     reason = "未知错误"
                 return ActionResult(False, f"[{label}] P4 Sync 失败：{reason}", output)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            return ActionResult(False, f"[{label}] P4 Sync 超时（>10 分钟），已强制终止")
         except FileNotFoundError:
             return ActionResult(False, f"[{label}] 未找到 p4 命令，请确保 Perforce 客户端已安装并在 PATH 中")
 
