@@ -369,28 +369,21 @@ class TaskExecutor:
                     "-engine",
                 ]
             try:
-                result = subprocess.run(
+                rc, output = self._run_streaming(
                     gen_cmd,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=300,
                     cwd=str(project_dir),
+                    timeout=300,
+                    heartbeat_sec=15,
                 )
-                output = (result.stdout + result.stderr).strip()
-                if result.returncode != 0:
+                if rc != 0:
                     # 识别已知环境问题，给出可执行的修复指引
                     hint = self._diagnose_ubt_error(output)
-                    msg = f"[{label}] Generate VS Files 失败 (code {result.returncode})"
+                    msg = f"[{label}] Generate VS Files 失败 (code {rc})"
                     if hint:
                         msg += f"\n💡 {hint}"
                     return ActionResult(False, msg, output)
                 logs.append("Generate VS Files 成功")
                 self._log(f"  ✅ Generate VS Files 完成")
-                if output:
-                    lines = output.splitlines()
-                    self._log("\n".join(lines[-10:]))
             except subprocess.TimeoutExpired:
                 return ActionResult(False, f"[{label}] Generate VS Files 超时（>5分钟）")
 
@@ -442,17 +435,13 @@ class TaskExecutor:
                 timeout = 1800
 
             try:
-                result = subprocess.run(
+                rc, output = self._run_streaming(
                     build_cmd,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
                     timeout=timeout,
+                    heartbeat_sec=30,
                 )
-                output = (result.stdout + result.stderr).strip()
-                if result.returncode != 0:
-                    return ActionResult(False, f"[{label}] 编译失败 (code {result.returncode})", output)
+                if rc != 0:
+                    return ActionResult(False, f"[{label}] 编译失败 (code {rc})", output)
                 logs.append(f"编译成功 [{build_config}|{build_platform}]")
                 self._log(f"  ✅ 编译完成")
             except subprocess.TimeoutExpired:
@@ -616,6 +605,92 @@ class TaskExecutor:
             pass
 
         return None
+
+    # ---- 通用：流式运行子进程，把关键进度实时打到日志 ----
+    def _run_streaming(
+        self,
+        cmd: list,
+        cwd: Optional[str] = None,
+        timeout: int = 1800,
+        progress_keywords: Optional[tuple] = None,
+        heartbeat_sec: int = 30,
+    ) -> tuple:
+        """
+        以流式方式运行子进程，实时转发"进度类"输出到日志，避免 UI 看起来卡死。
+        返回 (returncode, full_output)。
+
+        - progress_keywords: 小写关键字元组，匹配到才打印（默认适用于 UBT/MSBuild 编译）
+        - heartbeat_sec: 超过这个秒数没有任何匹配行时，打一条心跳"仍在编译中..."
+        - timeout: 硬超时（秒），超时会 kill 进程并抛 TimeoutExpired
+        """
+        import time, re
+        if progress_keywords is None:
+            progress_keywords = (
+                "compiling", "compile module", "building", "linking",
+                "generating", "writing", "error", "warning",
+                "took ", "result:", "succeeded", "failed",
+            )
+        # [123/4567] 这种进度行也直接放行
+        progress_re = re.compile(r"^\s*\[\d+/\d+\]")
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=cwd,
+            bufsize=1,  # 行缓冲
+        )
+
+        all_lines: list = []
+        last_emit = time.time()
+        start = time.time()
+        last_progress_line: Optional[str] = None
+
+        def should_emit(line: str) -> bool:
+            low = line.lower()
+            if progress_re.match(line):
+                return True
+            return any(k in low for k in progress_keywords)
+
+        try:
+            assert proc.stdout is not None
+            for raw in proc.stdout:
+                line = raw.rstrip()
+                if not line:
+                    continue
+                all_lines.append(line)
+
+                # 硬超时检查
+                if time.time() - start > timeout:
+                    proc.kill()
+                    raise subprocess.TimeoutExpired(cmd, timeout)
+
+                if should_emit(line):
+                    # 限制单行长度，防止日志被刷爆
+                    shown = line if len(line) <= 200 else line[:200] + "…"
+                    self._log(f"    {shown}")
+                    last_emit = time.time()
+                    last_progress_line = line
+                else:
+                    # 心跳：过久没出进度就打一条，避免 UI 看起来卡死
+                    if time.time() - last_emit >= heartbeat_sec:
+                        elapsed = int(time.time() - start)
+                        tail = f" · 最近: {last_progress_line[-80:]}" if last_progress_line else ""
+                        self._log(f"    ⏳ 仍在执行中…已 {elapsed}s{tail}")
+                        last_emit = time.time()
+
+            proc.wait(timeout=max(1, timeout - int(time.time() - start)))
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            raise
+
+        return proc.returncode, "\n".join(all_lines)
 
     # ---- UE 辅助：确保 UBT 目录下有 System.CodeDom.dll（lib/net8.0/ 子目录）----
     def _ensure_ubt_codedom_dll(self, gen_script: Path) -> None:
