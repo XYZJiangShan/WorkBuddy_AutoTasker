@@ -545,7 +545,12 @@ class TaskExecutor:
 
             all_ok = True
             for i, action in enumerate(actions, 1):
-                self._log(f"\n[步骤 {i}/{len(actions)}] {action.get('label') or action.get('type')}")
+                step_label = action.get('label') or action.get('type')
+                self._log(f"\n[步骤 {i}/{len(actions)}] {step_label}")
+                # 步骤级启用开关：未启用则跳过
+                if not action.get("enabled", True):
+                    self._log(f"⏭️  已跳过（步骤未启用）")
+                    continue
                 result = self.execute_action(action, as_admin=as_admin)
                 self._log(str(result))
                 if result.output:

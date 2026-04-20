@@ -664,12 +664,17 @@ class TaskEditorDialog(QDialog):
         self.btn_dn.setFixedSize(28, 28)
         self.btn_dn.setToolTip("下移")
         self.btn_dn.clicked.connect(lambda: self._move_step(1))
+        self.chk_step_enabled = QCheckBox("启用")
+        self.chk_step_enabled.setToolTip("关闭后，执行时将跳过当前步骤")
+        self.chk_step_enabled.setEnabled(False)  # 未选中步骤时禁用
+        self.chk_step_enabled.toggled.connect(self._on_step_enabled_toggled)
         self.btn_del_step = QPushButton("删除")
         self.btn_del_step.setObjectName("btn_del_step")
         self.btn_del_step.setFixedHeight(28)
         self.btn_del_step.clicked.connect(self._delete_step)
         step_btns.addWidget(self.btn_up)
         step_btns.addWidget(self.btn_dn)
+        step_btns.addWidget(self.chk_step_enabled)
         step_btns.addStretch()
         step_btns.addWidget(self.btn_del_step)
         left_layout.addLayout(step_btns)
@@ -779,6 +784,7 @@ class TaskEditorDialog(QDialog):
     def _load_steps(self):
         for action in self.task.get("actions", []):
             self._append_step(action)
+        self._refresh_list_labels()
         if self.step_list.count() > 0:
             self.step_list.setCurrentRow(0)
 
@@ -810,18 +816,43 @@ class TaskEditorDialog(QDialog):
     def _on_step_selected(self, row: int):
         if row < 0 or row >= len(self.step_entries):
             self.panel_stack.setCurrentIndex(0)
+            self.chk_step_enabled.setEnabled(False)
+            self.chk_step_enabled.blockSignals(True)
+            self.chk_step_enabled.setChecked(False)
+            self.chk_step_enabled.blockSignals(False)
             return
         entry = self.step_entries[row]
         self.panel_stack.setCurrentIndex(entry["stack_idx"])
+        # 同步"启用"开关
+        self.chk_step_enabled.setEnabled(True)
+        self.chk_step_enabled.blockSignals(True)
+        self.chk_step_enabled.setChecked(entry["action"].get("enabled", True))
+        self.chk_step_enabled.blockSignals(False)
         # 更新列表项文字
         self._refresh_list_labels()
 
+    def _on_step_enabled_toggled(self, checked: bool):
+        row = self.step_list.currentRow()
+        if row < 0 or row >= len(self.step_entries):
+            return
+        self.step_entries[row]["action"]["enabled"] = checked
+        self._refresh_list_labels()
+
     def _refresh_list_labels(self):
+        from PyQt6.QtGui import QColor, QFont
         for i, entry in enumerate(self.step_entries):
             type_label = ACTION_TYPE_NAMES.get(entry["action"]["type"], entry["action"]["type"])
             label = entry["action"].get("label") or type_label
+            enabled = entry["action"].get("enabled", True)
+            prefix = "" if enabled else "🚫 "
             if i < self.step_list.count():
-                self.step_list.item(i).setText(f"{i+1}. {label}")
+                item = self.step_list.item(i)
+                item.setText(f"{prefix}{i+1}. {label}")
+                # 视觉弱化：未启用项灰色 + 斜体
+                f = item.font()
+                f.setItalic(not enabled)
+                item.setFont(f)
+                item.setForeground(QColor("#888") if not enabled else QColor("#e6e6e6"))
 
     def _delete_step(self):
         row = self.step_list.currentRow()
@@ -851,6 +882,8 @@ class TaskEditorDialog(QDialog):
             item = QListWidgetItem(f"{i+1}. {label}")
             item.setData(Qt.ItemDataRole.UserRole, i)
             self.step_list.addItem(item)
+        # 统一刷新禁用态样式
+        self._refresh_list_labels()
         if self.step_list.count() > 0:
             self.step_list.setCurrentRow(0)
 
