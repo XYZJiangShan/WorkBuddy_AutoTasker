@@ -4,7 +4,6 @@ AutoTasker - 主窗口（重设计版）
 import sys
 import copy
 import os
-import math
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -472,83 +471,32 @@ def _get_file_icon_raw(file_path: str, size: int = 52) -> Optional[QPixmap]:
         return None
     try:
         info = QFileInfo(file_path)
-        # 获取设备像素率（DPI 缩放）
-        app = QApplication.instance()
-        dpr = app.devicePixelRatio() if app else 1.0
-        
-        # 计算物理像素大小（高 DPI 屏幕对应更多物理像素）
-        physical_size = max(256, int(size * dpr * 2))  # 至少 256，通常 2x 足以覆盖 4K 屏
-        # 从系统获取更大尺寸的图标
-        icon = _icon_provider.icon(info)
-        # 尝试获取更高分辨率图标
-        available_sizes = icon.availableSizes()
-        best_size = QSize(physical_size, physical_size)
-        # 如果有可用尺寸，选择最接近的大尺寸
-        if available_sizes:
-            available_sizes = sorted(available_sizes, key=lambda s: s.width(), reverse=True)
-            for sz in available_sizes:
-                if sz.width() >= physical_size:
-                    best_size = sz
-                    break
-            else:
-                # 没有足够大的尺寸，使用最大可用尺寸
-                best_size = available_sizes[0]
-        
-        raw = icon.pixmap(best_size)
+        raw = _icon_provider.icon(info).pixmap(QSize(256, 256))
         if raw.isNull():
             return None
-        
-        # 缩放到目标物理像素大小
-        raw = raw.scaled(physical_size, physical_size,
+        raw = raw.scaled(size, size,
                          Qt.AspectRatioMode.IgnoreAspectRatio,
                          Qt.TransformationMode.SmoothTransformation)
-        
-        # 创建带有设备像素率的 QPixmap（逻辑大小 = size）
+        # 裁成圆角
         result = QPixmap(size, size)
-        result.setDevicePixelRatio(dpr)
         result.fill(Qt.GlobalColor.transparent)
-        
         p = QPainter(result)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        
-        # 路径：逻辑坐标（基于 size）
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, size, size), size * 0.2, size * 0.2)
         p.setClipPath(path)
-        
-        # 绘制：缩放后的 raw 需要映射到逻辑坐标
-        # 将物理像素缩放到逻辑大小
-        scaled_physical_width = int(size * dpr)
-        # 计算偏移（居中）
-        offset_x = (physical_size - scaled_physical_width) // 2
-        offset_y = (physical_size - scaled_physical_width) // 2
-        
-        # 裁剪并绘制中心部分
-        source_rect = QRectF(offset_x, offset_y, scaled_physical_width, scaled_physical_width)
-        target_rect = QRectF(0, 0, size, size)
-        p.drawPixmap(target_rect, raw, source_rect)
+        p.drawPixmap(0, 0, raw)
         p.end()
-        
         return result
     except Exception:
         return None
 
 def _letter_icon(letter: str, color: str, size: int = 52) -> QPixmap:
-    """纯文字图标（高DPI优化），绘制渐变底色+首字母"""
-    # 获取设备像素率
-    app = QApplication.instance()
-    dpr = app.devicePixelRatio() if app else 1.0
-    
+    """纯文字图标，绘制渐变底色+首字母"""
     pm = QPixmap(size, size)
-    pm.setDevicePixelRatio(dpr)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-    
-    # 渐变底色
     grad = QLinearGradient(0, 0, size, size)
     base = QColor(color)
     grad.setColorAt(0, base.lighter(140))
@@ -557,152 +505,10 @@ def _letter_icon(letter: str, color: str, size: int = 52) -> QPixmap:
     p.setPen(Qt.PenStyle.NoPen)
     r = size * 0.22
     p.drawRoundedRect(QRectF(0, 0, size, size), r, r)
-    
-    # 文字：使用物理像素尺寸计算字体大小
-    physical_size = int(size * dpr)
-    font_size = max(physical_size // 3, 10)
     p.setPen(QPen(QColor("#ffffff")))
-    f = QFont("Microsoft YaHei UI", font_size, QFont.Weight.Bold)
-    f.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    f = QFont("Microsoft YaHei UI", max(size // 3, 10), QFont.Weight.Bold)
     p.setFont(f)
     p.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, letter.upper()[:1])
-    p.end()
-    return pm
-
-# ══════════════════════════════════════════════
-#  矢量图标（高DPI优化）
-# ══════════════════════════════════════════════
-def _draw_vector_gear(color: str, size: int = 52, dpr: float = 1.0) -> QPixmap:
-    """绘制齿轮图标"""
-    pm = QPixmap(size, size)
-    pm.setDevicePixelRatio(dpr)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    
-    # 渐变底色
-    grad = QLinearGradient(0, 0, size, size)
-    base = QColor(color)
-    grad.setColorAt(0, base.lighter(130))
-    grad.setColorAt(1, base)
-    p.setBrush(QBrush(grad))
-    p.setPen(Qt.PenStyle.NoPen)
-    r = size * 0.22
-    p.drawRoundedRect(QRectF(0, 0, size, size), r, r)
-    
-    # 齿轮绘制（白色）
-    p.setPen(QPen(QColor("#ffffff"), max(size * 0.08, 2), Qt.PenStyle.SolidLine))
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    
-    center = size / 2
-    radius = size * 0.28
-    tooth_radius = radius * 1.3
-    tooth_width = size * 0.08
-    
-    # 齿轮主体圆
-    p.drawEllipse(QPointF(center, center), radius, radius)
-    
-    # 齿轮齿
-    for i in range(8):
-        angle = i * (360 / 8)
-        rad = angle * 3.14159 / 180
-        x1 = center + tooth_radius * math.cos(rad)
-        y1 = center + tooth_radius * math.sin(rad)
-        x2 = center + (tooth_radius + tooth_width) * math.cos(rad)
-        y2 = center + (tooth_radius + tooth_width) * math.sin(rad)
-        p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
-    
-    p.end()
-    return pm
-
-def _draw_vector_folder(color: str, size: int = 52, dpr: float = 1.0) -> QPixmap:
-    """绘制文件夹图标"""
-    pm = QPixmap(size, size)
-    pm.setDevicePixelRatio(dpr)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    
-    # 渐变底色
-    grad = QLinearGradient(0, 0, size, size)
-    base = QColor(color)
-    grad.setColorAt(0, base.lighter(130))
-    grad.setColorAt(1, base)
-    p.setBrush(QBrush(grad))
-    p.setPen(Qt.PenStyle.NoPen)
-    r = size * 0.22
-    p.drawRoundedRect(QRectF(0, 0, size, size), r, r)
-    
-    # 文件夹绘制（白色）
-    p.setPen(QPen(QColor("#ffffff"), max(size * 0.08, 2), Qt.PenStyle.SolidLine))
-    p.setBrush(QBrush(QColor("#ffffff")))
-    
-    # 文件夹主体
-    folder_width = size * 0.6
-    folder_height = size * 0.5
-    folder_x = (size - folder_width) / 2
-    folder_y = (size - folder_height) / 2 + size * 0.05
-    
-    path = QPainterPath()
-    path.moveTo(folder_x + folder_width * 0.2, folder_y)
-    path.lineTo(folder_x + folder_width * 0.8, folder_y)
-    path.lineTo(folder_x + folder_width, folder_y + folder_height * 0.3)
-    path.lineTo(folder_x + folder_width, folder_y + folder_height)
-    path.lineTo(folder_x, folder_y + folder_height)
-    path.lineTo(folder_x, folder_y + folder_height * 0.3)
-    path.closeSubpath()
-    
-    p.drawPath(path)
-    
-    # 文件夹标签
-    p.setPen(QPen(QColor("#ffffff"), max(size * 0.06, 1.5), Qt.PenStyle.SolidLine))
-    tag_width = folder_width * 0.4
-    tag_height = folder_height * 0.2
-    tag_x = folder_x + folder_width * 0.2
-    tag_y = folder_y - tag_height * 0.5
-    p.drawRoundedRect(QRectF(tag_x, tag_y, tag_width, tag_height), tag_height * 0.3, tag_height * 0.3)
-    
-    p.end()
-    return pm
-
-def _draw_vector_lightning(color: str, size: int = 52, dpr: float = 1.0) -> QPixmap:
-    """绘制闪电图标"""
-    pm = QPixmap(size, size)
-    pm.setDevicePixelRatio(dpr)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    
-    # 渐变底色
-    grad = QLinearGradient(0, 0, size, size)
-    base = QColor(color)
-    grad.setColorAt(0, base.lighter(130))
-    grad.setColorAt(1, base)
-    p.setBrush(QBrush(grad))
-    p.setPen(Qt.PenStyle.NoPen)
-    r = size * 0.22
-    p.drawRoundedRect(QRectF(0, 0, size, size), r, r)
-    
-    # 闪电绘制（白色）
-    p.setPen(QPen(QColor("#ffffff"), max(size * 0.06, 1.5), Qt.PenStyle.SolidLine))
-    p.setBrush(QBrush(QColor("#ffffff")))
-    
-    center_x = size / 2
-    center_y = size / 2
-    lightning_size = size * 0.4
-    
-    # 闪电形状路径
-    path = QPainterPath()
-    path.moveTo(center_x - lightning_size * 0.2, center_y - lightning_size * 0.3)
-    path.lineTo(center_x + lightning_size * 0.3, center_y - lightning_size * 0.1)
-    path.lineTo(center_x + lightning_size * 0.1, center_y + lightning_size * 0.1)
-    path.lineTo(center_x + lightning_size * 0.4, center_y + lightning_size * 0.3)
-    path.lineTo(center_x - lightning_size * 0.1, center_y + lightning_size * 0.1)
-    path.lineTo(center_x + lightning_size * 0.1, center_y + lightning_size * 0.3)
-    path.lineTo(center_x - lightning_size * 0.3, center_y + lightning_size * 0.1)
-    path.closeSubpath()
-    
-    p.drawPath(path)
     p.end()
     return pm
 
@@ -752,39 +558,17 @@ BUILTIN_ICONS = [
 ]
 
 def _builtin_icon_pixmap(key: str, color: str, size: int = 52) -> QPixmap:
-    """绘制内置图标（高DPI优化，矢量/emoji混合）"""
-    # 获取设备像素率
-    app = QApplication.instance()
-    dpr = app.devicePixelRatio() if app else 1.0
-    
-    # 物理像素大小
-    physical_size = int(size * dpr)
-    
+    """绘制内置图标（基于 emoji 文字渲染）"""
     emoji_map = {
         "lightning": "⚡", "wrench": "🔧", "palette": "🎨",
         "game": "🎮", "folder": "📁", "rocket": "🚀",
         "code": "💻", "fire": "🔥", "gear": "⚙",
         "web": "🌐", "package": "📦", "video": "🎬",
     }
-    
-    # 对于齿轮图标，使用矢量绘制（因为 emoji 齿轮在 Windows 上可能显示不一致）
-    if key == "gear":
-        return _draw_vector_gear(color, size, dpr)
-    elif key == "folder":
-        return _draw_vector_folder(color, size, dpr)
-    elif key == "lightning":
-        return _draw_vector_lightning(color, size, dpr)
-    
-    # 其他图标使用 emoji，但在高 DPI 下渲染
     pm = QPixmap(size, size)
-    pm.setDevicePixelRatio(dpr)
     pm.fill(Qt.GlobalColor.transparent)
-    
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-    
     # 渐变底色
     grad = QLinearGradient(0, 0, size, size)
     base = QColor(color)
@@ -794,13 +578,9 @@ def _builtin_icon_pixmap(key: str, color: str, size: int = 52) -> QPixmap:
     p.setPen(Qt.PenStyle.NoPen)
     r = size * 0.22
     p.drawRoundedRect(QRectF(0, 0, size, size), r, r)
-    
-    # emoji：在高 DPI 下使用更大的字体尺寸
+    # emoji
     emoji = emoji_map.get(key, "📁")
-    # 使用物理像素尺寸计算字体大小
-    font_size = max(physical_size // 2, 12)
-    f = QFont("Segoe UI Emoji", font_size)
-    f.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    f = QFont("Segoe UI Emoji", max(size // 2, 12))
     p.setFont(f)
     p.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, emoji)
     p.end()
