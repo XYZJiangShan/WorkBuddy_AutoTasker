@@ -462,6 +462,31 @@ def _task_color(task, idx):
 # ══════════════════════════════════════════════
 _icon_provider = None
 
+def _dpr() -> float:
+    """获取当前主屏的设备像素比，失败回退 1.0"""
+    try:
+        app = QApplication.instance()
+        if app is not None:
+            scr = app.primaryScreen()
+            if scr is not None:
+                return float(scr.devicePixelRatio())
+    except Exception:
+        pass
+    return 1.0
+
+def _hidpi_pixmap(size: int) -> QPixmap:
+    """创建一个按物理像素尺寸申请、但逻辑尺寸为 size 的高分辨率 QPixmap。
+
+    之后用 QPainter 在逻辑坐标 (0,0,size,size) 里作画即可，输出将是
+    physical = size * dpr 的清晰像素。
+    """
+    dpr = _dpr()
+    phys = max(1, int(round(size * dpr)))
+    pm = QPixmap(phys, phys)
+    pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.GlobalColor.transparent)
+    return pm
+
 def _get_file_icon_raw(file_path: str, size: int = 52) -> Optional[QPixmap]:
     """从文件获取系统图标，直接裁圆角，不加底色，返回 None 表示获取失败"""
     global _icon_provider
@@ -471,21 +496,36 @@ def _get_file_icon_raw(file_path: str, size: int = 52) -> Optional[QPixmap]:
         return None
     try:
         info = QFileInfo(file_path)
-        raw = _icon_provider.icon(info).pixmap(QSize(256, 256))
+        icon = _icon_provider.icon(info)
+        dpr = _dpr()
+        target_phys = max(1, int(round(size * dpr)))
+        # 在 availableSizes 里挑不小于目标物理像素的最大尺寸；没有就用最大的那个
+        best = None
+        try:
+            sizes = icon.availableSizes()
+            if sizes:
+                fits = [s for s in sizes if s.width() >= target_phys and s.height() >= target_phys]
+                best = min(fits, key=lambda s: s.width()) if fits else max(sizes, key=lambda s: s.width())
+        except Exception:
+            best = None
+        request = best if best is not None else QSize(max(256, target_phys), max(256, target_phys))
+        raw = icon.pixmap(request)
         if raw.isNull():
             return None
-        raw = raw.scaled(size, size,
+        # 缩放到物理像素尺寸（只缩一次）
+        raw = raw.scaled(target_phys, target_phys,
                          Qt.AspectRatioMode.IgnoreAspectRatio,
                          Qt.TransformationMode.SmoothTransformation)
-        # 裁成圆角
-        result = QPixmap(size, size)
-        result.fill(Qt.GlobalColor.transparent)
+        # 输出画布按物理像素申请、逻辑尺寸保持 size
+        result = _hidpi_pixmap(size)
         p = QPainter(result)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, size, size), size * 0.2, size * 0.2)
         p.setClipPath(path)
-        p.drawPixmap(0, 0, raw)
+        # 把物理像素图按逻辑尺寸绘制（QPainter 会按 dpr 自动换算）
+        p.drawPixmap(QRectF(0, 0, size, size), raw, QRectF(0, 0, target_phys, target_phys))
         p.end()
         return result
     except Exception:
@@ -493,10 +533,10 @@ def _get_file_icon_raw(file_path: str, size: int = 52) -> Optional[QPixmap]:
 
 def _letter_icon(letter: str, color: str, size: int = 52) -> QPixmap:
     """纯文字图标，绘制渐变底色+首字母"""
-    pm = QPixmap(size, size)
-    pm.fill(Qt.GlobalColor.transparent)
+    pm = _hidpi_pixmap(size)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     grad = QLinearGradient(0, 0, size, size)
     base = QColor(color)
     grad.setColorAt(0, base.lighter(140))
@@ -565,10 +605,10 @@ def _builtin_icon_pixmap(key: str, color: str, size: int = 52) -> QPixmap:
         "code": "💻", "fire": "🔥", "gear": "⚙",
         "web": "🌐", "package": "📦", "video": "🎬",
     }
-    pm = QPixmap(size, size)
-    pm.fill(Qt.GlobalColor.transparent)
+    pm = _hidpi_pixmap(size)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     # 渐变底色
     grad = QLinearGradient(0, 0, size, size)
     base = QColor(color)
