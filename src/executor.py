@@ -165,24 +165,49 @@ class TaskExecutor:
             )
             output = (result.stdout + result.stderr).strip()
             # P4 有时返回 0 但 stderr 里报错（比如 "file(s) not in client view"），
-            # 这类属于实际失败，需要单独识别
-            p4_err_keywords = [
-                "not in client view",
-                "no such file",
-                "access denied",
-                "client unknown",
-                "client '", "unknown",  # "Client 'xxx' unknown."
-                "your session has expired",
-                "password invalid",
-                "perforce password (p4passwd) invalid",
+            # 这类属于实际失败，需要单独识别；同时给出"人话"提示
+            # 关键字按特异性从高到低排列，命中第一个即停
+            p4_err_hints = [
+                ("not in client view",
+                 "🔧 当前 Workspace 没映射到该路径。请检查 P4 Client 的 View 是否包含该 depot 分支"),
+                ("your session has expired",
+                 "🔐 P4 会话已过期，请重新登录（可在步骤里勾选\"自动登录\"）"),
+                ("perforce password (p4passwd) invalid",
+                 "🔐 P4 密码错误或未登录，请检查密码 / 重新登录"),
+                ("password invalid",
+                 "🔐 P4 密码错误，请检查账号密码"),
+                ("client unknown",
+                 "🏷️ P4 Workspace（Client）不存在，请确认名称是否正确"),
+                ("unknown - use 'client' command",
+                 "🏷️ P4 Workspace（Client）不存在，请用 P4V 创建或换一个正确的 Workspace"),
+                ("access denied",
+                 "🚫 权限不足，你的账号可能没有访问该 depot 的权限，请联系 P4 管理员"),
+                ("connect to server failed",
+                 "🌐 连不上 P4 服务器，检查 VPN / 网络 / P4PORT 是否正确"),
+                ("tcp connect to",
+                 "🌐 网络不通，无法连接 P4 服务器，请检查 VPN / 网络"),
+                ("no such file",
+                 "📂 depot 路径不存在，请检查路径拼写（P4 区分大小写）"),
+                ("file(s) up-to-date",
+                 "ℹ️ 文件已是最新，无需同步"),  # 这个其实不是错误
             ]
             lower_out = output.lower()
-            hit = next((kw for kw in p4_err_keywords if kw in lower_out), None)
+            hit = next(((kw, hint) for kw, hint in p4_err_hints if kw in lower_out), None)
+
+            # "file(s) up-to-date" 是成功场景，单独放行
+            if hit and hit[0] == "file(s) up-to-date":
+                return ActionResult(True, f"[{label}] P4 Sync 完成: {hit[1]}", output)
+
             if result.returncode == 0 and not hit:
                 return ActionResult(True, f"[{label}] P4 Sync 成功: {depot_path}", output)
             else:
-                code_part = f"code {result.returncode}" if result.returncode != 0 else f"命中错误关键字: {hit}"
-                return ActionResult(False, f"[{label}] P4 Sync 失败 ({code_part})", output)
+                if hit:
+                    reason = hit[1]
+                elif result.returncode != 0:
+                    reason = f"p4 进程返回错误码 {result.returncode}"
+                else:
+                    reason = "未知错误"
+                return ActionResult(False, f"[{label}] P4 Sync 失败：{reason}", output)
         except FileNotFoundError:
             return ActionResult(False, f"[{label}] 未找到 p4 命令，请确保 Perforce 客户端已安装并在 PATH 中")
 
@@ -203,7 +228,16 @@ class TaskExecutor:
             if result.returncode == 0:
                 return ActionResult(True, f"[{label}] 登录成功", output)
             else:
-                return ActionResult(False, f"[{label}] P4 登录失败（密码错误？）: {output}")
+                lower = output.lower()
+                if "connect to server failed" in lower or "tcp connect to" in lower:
+                    reason = "🌐 连不上 P4 服务器，请检查 VPN / 网络 / P4PORT"
+                elif "password invalid" in lower or "p4passwd" in lower:
+                    reason = "🔐 密码错误，请确认账号密码"
+                elif "user" in lower and "doesn't exist" in lower:
+                    reason = "👤 P4 账号不存在，请确认用户名"
+                else:
+                    reason = "登录失败"
+                return ActionResult(False, f"[{label}] P4 登录失败：{reason}", output)
         except FileNotFoundError:
             return ActionResult(False, f"[{label}] 未找到 p4 命令")
 
