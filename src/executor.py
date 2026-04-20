@@ -488,10 +488,14 @@ class TaskExecutor:
             for c in _bat_candidates(Path(engine_path)):
                 if c.exists():
                     return c
-            # 同目录下找 UBT.exe
-            ubt = Path(engine_path) / "Engine" / "Binaries" / "DotNET" / "AutomationTool" / "UnrealBuildTool.exe"
-            if ubt.exists():
-                return ubt
+            # 同目录下找 UBT.exe：优先独立 UBT 目录，次选 AutomationTool
+            for rel in [
+                "Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe",
+                "Engine/Binaries/DotNET/AutomationTool/UnrealBuildTool.exe",
+            ]:
+                ubt = Path(engine_path) / rel
+                if ubt.exists():
+                    return ubt
 
         # 2. 从 .uproject 向上找 bat
         check = Path(uproject_path).parent
@@ -509,11 +513,11 @@ class TaskExecutor:
             if matches:
                 return Path(matches[0])
 
-        # 4. 从引擎目录找 UBT.exe（源码版/腾讯版）
+        # 4. 从引擎目录找 UBT.exe（源码版/腾讯版）：优先独立 UBT 目录
         search_root = Path(engine_path) if engine_path else Path(uproject_path).parent.parent
         for rel in [
-            "Engine/Binaries/DotNET/AutomationTool/UnrealBuildTool.exe",
             "Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe",
+            "Engine/Binaries/DotNET/AutomationTool/UnrealBuildTool.exe",
         ]:
             p = search_root / rel
             if p.exists():
@@ -538,13 +542,13 @@ class TaskExecutor:
 
     # ---- UE 辅助：专门查找 UBT 用于编译 ----
     def _find_ubt(self, engine_path: str) -> Optional[Path]:
-        """查找 UnrealBuildTool.exe，用于编译目标"""
+        """查找 UnrealBuildTool.exe，用于编译目标（优先独立 UBT 目录）"""
         candidates = []
         if engine_path:
             root = Path(engine_path)
             candidates = [
-                root / "Engine" / "Binaries" / "DotNET" / "AutomationTool" / "UnrealBuildTool.exe",
                 root / "Engine" / "Binaries" / "DotNET" / "UnrealBuildTool" / "UnrealBuildTool.exe",
+                root / "Engine" / "Binaries" / "DotNET" / "AutomationTool" / "UnrealBuildTool.exe",
             ]
         for p in candidates:
             if p.exists():
@@ -622,30 +626,56 @@ class TaskExecutor:
         FileNotFoundException: System.CodeDom。此处做前置自动修复。
 
         仅当 gen_script 是 UnrealBuildTool.exe 时处理；bat 模式无需。
+        同时给 AutomationTool\\UnrealBuildTool.exe 和 UnrealBuildTool\\UnrealBuildTool.exe
+        两个副本都补齐（源码版通常两份都有，后续编译/打包也可能用到）。
         """
         try:
             if gen_script.suffix.lower() != ".exe":
                 return
             if gen_script.name.lower() != "unrealbuildtool.exe":
                 return
-            ubt_dir = gen_script.parent
-            target = ubt_dir / "lib" / "net8.0" / "System.CodeDom.dll"
-            if target.exists() and target.stat().st_size > 100 * 1024:
-                return  # 已存在且大小合理（>100KB），跳过
 
-            # 在本机 .NET 8 SDK 里找一份 System.CodeDom.dll
-            src = self._locate_system_codedom_dll()
-            if not src:
-                self._log("  ⚠️ 未找到 System.CodeDom.dll 源文件（需要 .NET 8 SDK），跳过自动补齐")
+            # 找引擎根目录（UBT 目录向上 4 级：UBT/UnrealBuildTool -> DotNET -> Binaries -> Engine -> Root）
+            ubt_dir = gen_script.parent
+            dotnet_dir = ubt_dir.parent  # .../Engine/Binaries/DotNET
+            if dotnet_dir.name.lower() != "dotnet":
+                # 不符合预期结构，只处理当前一份
+                self._patch_one_ubt_codedom(ubt_dir)
                 return
 
+            # 引擎下所有 UnrealBuildTool.exe 副本，都在各自 lib\net8.0\ 下补齐
+            patched_any = False
+            for sub in dotnet_dir.iterdir():
+                cand = sub / "UnrealBuildTool.exe"
+                if sub.is_dir() and cand.exists():
+                    if self._patch_one_ubt_codedom(sub):
+                        patched_any = True
+
+            if not patched_any:
+                return
+        except Exception as e:
+            self._log(f"  ⚠️ System.CodeDom.dll 自动补齐失败: {e}")
+
+    def _patch_one_ubt_codedom(self, ubt_dir: Path) -> bool:
+        """给单个 UBT 目录补齐 lib/net8.0/System.CodeDom.dll，已存在则跳过。返回是否实际做了拷贝。"""
+        target = ubt_dir / "lib" / "net8.0" / "System.CodeDom.dll"
+        if target.exists() and target.stat().st_size > 100 * 1024:
+            return False
+
+        src = self._locate_system_codedom_dll()
+        if not src:
+            self._log("  ⚠️ 未找到 System.CodeDom.dll 源文件（需要 .NET 8 SDK），跳过自动补齐")
+            return False
+
+        try:
             target.parent.mkdir(parents=True, exist_ok=True)
             import shutil
             shutil.copy2(str(src), str(target))
             self._log(f"  🔧 已自动补齐 System.CodeDom.dll → {target}")
+            return True
         except Exception as e:
-            # 前置修复失败不阻断主流程，继续走后面的 UBT 调用
-            self._log(f"  ⚠️ System.CodeDom.dll 自动补齐失败: {e}")
+            self._log(f"  ⚠️ 补齐 {target} 失败: {e}")
+            return False
 
     @staticmethod
     def _locate_system_codedom_dll() -> Optional[Path]:
