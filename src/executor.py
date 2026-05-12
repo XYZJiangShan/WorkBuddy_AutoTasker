@@ -26,8 +26,20 @@ class ActionResult:
 class TaskExecutor:
     def __init__(self, log_callback: Optional[Callable[[str], None]] = None):
         self.log_callback = log_callback or (lambda x: None)
+        # 最近一次失败快照，供 UI 调 AI 诊断时用
+        # 结构：{task_name, step_label, action, message, output, log_tail, ts}
+        self.last_failure: Optional[Dict[str, Any]] = None
+        # 本次任务运行累积的完整日志（失败时取尾部当上下文）
+        self._current_log_buf: List[str] = []
 
     def _log(self, msg: str):
+        try:
+            self._current_log_buf.append(str(msg))
+            # 防止长时间运行占太多内存，只保留最近 2000 行
+            if len(self._current_log_buf) > 2000:
+                del self._current_log_buf[:-2000]
+        except Exception:
+            pass
         self.log_callback(msg)
 
     # ---- 单个 Action 执行 ----
@@ -824,6 +836,8 @@ class TaskExecutor:
             name = task.get("name", "未命名任务")
             actions: List[Dict] = task.get("actions", [])
             admin_tag = " 🛡[管理员]" if as_admin else ""
+            # 开始新一轮任务：清空上一次的日志缓冲，但 last_failure 保留（方便任务结束后点诊断）
+            self._current_log_buf = []
             self._log(f"\n{'='*40}")
             self._log(f"▶ 开始执行任务: {name}{admin_tag}")
             self._log(f"{'='*40}")
@@ -854,6 +868,20 @@ class TaskExecutor:
                     self._log(preview)
                 if not result.success:
                     all_ok = False
+                    # 记录最近一次失败上下文，供 UI 调用 AI 诊断
+                    try:
+                        tail_lines = self._current_log_buf[-400:]
+                        self.last_failure = {
+                            "task_name": name,
+                            "step_label": step_label,
+                            "action": action,
+                            "message": result.message,
+                            "output": result.output,
+                            "log_tail": "\n".join(tail_lines),
+                            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                    except Exception:
+                        pass
                     self._log(f"⚠️ 步骤失败，继续执行后续操作...")
 
             final_msg = f"✅ 任务 [{name}] 完成" if all_ok else f"⚠️ 任务 [{name}] 完成（有步骤失败）"

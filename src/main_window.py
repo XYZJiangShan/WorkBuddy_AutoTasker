@@ -23,6 +23,7 @@ from config_manager import (load_tasks, save_tasks, load_settings, save_settings
 from executor import TaskExecutor
 from scheduler import TaskScheduler
 from task_editor import TaskEditorDialog
+import ai_diagnose
 
 # ── LOGO 路径 ──
 def _logo_path(size: int = 256) -> str:
@@ -1028,6 +1029,26 @@ class MainWindow(QMainWindow):
         log_title = QLabel("执行日志")
         log_title.setStyleSheet(
             f"font-size:12px;font-weight:bold;color:{C['text2']};background:transparent;")
+
+        # 🤖 AI 诊断
+        self.btn_ai_diagnose = QPushButton("🤖 AI 诊断")
+        self.btn_ai_diagnose.setFixedHeight(24)
+        self.btn_ai_diagnose.setMinimumWidth(82)
+        self.btn_ai_diagnose.setToolTip("把最近一次失败的日志发给 AI 分析")
+        self.btn_ai_diagnose.setStyleSheet(
+            f"font-size:11px;padding:0 8px;background:{C['card']};border:none;"
+            f"border-radius:5px;color:{C['text2']};")
+        self.btn_ai_diagnose.clicked.connect(self._ai_diagnose_log)
+
+        # ⚙ AI 设置
+        self.btn_ai_settings = QPushButton("⚙")
+        self.btn_ai_settings.setFixedSize(28, 24)
+        self.btn_ai_settings.setToolTip("AI 诊断设置（API Key / 模型）")
+        self.btn_ai_settings.setStyleSheet(
+            f"font-size:12px;padding:0;background:{C['card']};border:none;"
+            f"border-radius:5px;color:{C['text2']};")
+        self.btn_ai_settings.clicked.connect(self._open_ai_settings)
+
         self.btn_clear = QPushButton("清空")
         self.btn_clear.setFixedSize(48, 24)
         self.btn_clear.setStyleSheet(
@@ -1036,6 +1057,8 @@ class MainWindow(QMainWindow):
         self.btn_clear.clicked.connect(lambda: self.log_view.clear())
         log_bar.addWidget(log_title)
         log_bar.addStretch()
+        log_bar.addWidget(self.btn_ai_diagnose)
+        log_bar.addWidget(self.btn_ai_settings)
         log_bar.addWidget(self.btn_clear)
         log_vl.addLayout(log_bar)
 
@@ -1590,6 +1613,162 @@ class MainWindow(QMainWindow):
 
         self.executor.execute_task(task, on_done=done, async_run=True)
 
+    # ── AI 日志诊断 ──
+    def _open_ai_settings(self):
+        """弹窗配置 AI 诊断（Base URL / API Key / Model）"""
+        cfg = ai_diagnose.load_ai_config()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("AI 诊断设置")
+        dlg.setMinimumWidth(460)
+        vl = QVBoxLayout(dlg)
+        vl.setContentsMargins(16, 16, 16, 12)
+        vl.setSpacing(10)
+
+        def add_row(label_text: str, widget: QWidget):
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet("font-size:12px;")
+            vl.addWidget(lbl)
+            vl.addWidget(widget)
+
+        ed_base = QLineEdit(cfg.get("base_url", ""))
+        ed_base.setPlaceholderText("例如 https://api.openai.com/v1")
+        add_row("Base URL", ed_base)
+
+        ed_key = QLineEdit(cfg.get("api_key", ""))
+        ed_key.setEchoMode(QLineEdit.EchoMode.Password)
+        ed_key.setPlaceholderText("sk-...")
+        add_row("API Key", ed_key)
+
+        ed_model = QLineEdit(cfg.get("model", ""))
+        ed_model.setPlaceholderText("例如 gpt-4o-mini / claude-3-5-sonnet-20241022")
+        add_row("Model", ed_model)
+
+        ed_timeout = QLineEdit(str(cfg.get("timeout", 60)))
+        ed_timeout.setPlaceholderText("60")
+        add_row("超时（秒）", ed_timeout)
+
+        hint = QLabel(
+            "配置存于 %APPDATA%\\AutoTasker\\ai_config.json，仅保存在本机。\n"
+            "支持任何 OpenAI 兼容协议的服务（OpenAI / DeepSeek / 内部网关等）。"
+        )
+        hint.setStyleSheet("font-size:11px;color:#888;")
+        hint.setWordWrap(True)
+        vl.addWidget(hint)
+
+        box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        box.accepted.connect(dlg.accept)
+        box.rejected.connect(dlg.reject)
+        vl.addWidget(box)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            timeout = int(ed_timeout.text().strip() or "60")
+        except ValueError:
+            timeout = 60
+
+        cfg["base_url"] = ed_base.text().strip().rstrip("/")
+        cfg["api_key"] = ed_key.text().strip()
+        cfg["model"] = ed_model.text().strip()
+        cfg["timeout"] = max(5, timeout)
+        try:
+            ai_diagnose.save_ai_config(cfg)
+            self._append_log('<span style="color:#8fd;">🤖 AI 诊断设置已保存</span>')
+        except Exception as e:
+            QMessageBox.warning(self, "保存失败", f"写入配置失败：{e}")
+
+    def _ai_diagnose_log(self):
+        """把最近一次失败上下文发给 AI，结果追加到日志"""
+        # 1. 检查配置
+        if not ai_diagnose.is_configured():
+            ret = QMessageBox.question(
+                self, "尚未配置 AI",
+                "还没有配置 AI 诊断。是否现在打开设置？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if ret == QMessageBox.StandardButton.Yes:
+                self._open_ai_settings()
+            return
+
+        # 2. 取上下文
+        fail = getattr(self.executor, "last_failure", None)
+        if not fail:
+            # 没有失败记录：退化为把当前日志尾部喂过去做自由问答
+            fallback_log = self.log_view.toPlainText()[-4000:]
+            if not fallback_log.strip():
+                QMessageBox.information(self, "AI 诊断", "暂无可分析的日志。请先执行一次任务。")
+                return
+            step_label = "（无失败记录，分析当前日志）"
+            command = None
+            err_msg = ""
+            log_tail = fallback_log
+            extra = None
+        else:
+            step_label = fail.get("step_label", "")
+            action = fail.get("action") or {}
+            command = self._action_to_command_preview(action)
+            err_msg = fail.get("message", "")
+            log_tail = fail.get("log_tail") or fail.get("output") or ""
+            extra = {
+                "任务": fail.get("task_name", ""),
+                "步骤类型": action.get("type", ""),
+                "失败时间": fail.get("ts", ""),
+            }
+
+        # 3. 打开日志面板并提示
+        if not self.log_container.isVisible():
+            self.btn_log_toggle.setChecked(True)
+            self._toggle_log()
+        self._append_log('<span style="color:#8fd;">🤖 正在请求 AI 诊断，请稍候...</span>')
+        self.btn_ai_diagnose.setEnabled(False)
+        self.btn_ai_diagnose.setText("诊断中...")
+
+        # 4. 后台线程调用，避免阻塞 UI
+        import threading
+        def work():
+            try:
+                result = ai_diagnose.diagnose(
+                    step_label=step_label,
+                    command=command,
+                    error_message=err_msg,
+                    log_tail=log_tail,
+                    extra=extra,
+                )
+                self.log_signal.emit("__AI_RESULT__" + result)
+            except ai_diagnose.AIDiagnoseError as e:
+                self.log_signal.emit("__AI_ERROR__" + str(e))
+            except Exception as e:
+                self.log_signal.emit("__AI_ERROR__" + f"未知错误: {e}")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _action_to_command_preview(self, action: Dict[str, Any]) -> Optional[list]:
+        """把一个 action 反推成"大致的命令行"，仅用于 AI 上下文参考。"""
+        if not action:
+            return None
+        atype = action.get("type", "")
+        if atype == "run_command":
+            cmd = action.get("command", "")
+            return [cmd] if cmd else None
+        if atype == "open_software":
+            exe = action.get("exe_path", "")
+            args = action.get("args", "")
+            return [exe] + ([args] if args else []) if exe else None
+        if atype == "ue_project":
+            up = action.get("uproject_path", "")
+            cfg = action.get("build_config", "")
+            plat = action.get("build_platform", "")
+            parts = []
+            if up: parts.append(f"uproject={up}")
+            if cfg: parts.append(f"config={cfg}")
+            if plat: parts.append(f"platform={plat}")
+            return parts or None
+        if atype == "p4_sync":
+            return [f"p4 sync {action.get('sync_path','')}"]
+        return None
+
     def _run_task_as_admin(self, task: Optional[Dict] = None):
         """以管理员身份运行选中任务（仅对 open_software / open_path / run_command 生效）"""
         if task is None:
@@ -1623,6 +1802,18 @@ class MainWindow(QMainWindow):
 
     # ── 日志（多色） ──
     def _append_log(self, msg: str):
+        # 特殊前缀：AI 诊断结果/错误，用独立样式块渲染
+        if msg.startswith("__AI_RESULT__"):
+            body = msg[len("__AI_RESULT__"):]
+            self._render_ai_block(body, ok=True)
+            self._ai_diagnose_reset_btn()
+            return
+        if msg.startswith("__AI_ERROR__"):
+            body = msg[len("__AI_ERROR__"):]
+            self._render_ai_block(body, ok=False)
+            self._ai_diagnose_reset_btn()
+            return
+
         # 任务开始时自动展开日志
         if not self._log_visible and ("▶" in msg or "开始执行" in msg):
             self.btn_log_toggle.setChecked(True)
@@ -1659,6 +1850,35 @@ class MainWindow(QMainWindow):
             cur.select(cur.SelectionType.BlockUnderCursor)
             cur.removeSelectedText()
             cur.deleteChar()
+
+    def _render_ai_block(self, text: str, ok: bool):
+        """把 AI 诊断结果作为一个醒目块追加到日志。"""
+        import html
+        header = "🤖 AI 诊断结果" if ok else "🤖 AI 诊断失败"
+        header_color = "#8b5cf6" if ok else "#ef4444"
+        # 简单保留换行，转义 HTML；对 markdown 的 ** 做个加粗替换
+        safe = html.escape(text)
+        # **xxx** → <b>xxx</b>
+        import re
+        safe = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", safe)
+        safe = safe.replace("\n", "<br>")
+        block = (
+            f'<div style="margin:6px 0;padding:8px 10px;border-left:3px solid {header_color};'
+            f'background:rgba(124,106,255,0.08);">'
+            f'<div style="color:{header_color};font-weight:bold;margin-bottom:4px;">{header}</div>'
+            f'<div style="color:#d9d9e6;line-height:1.55;">{safe}</div>'
+            f'</div>'
+        )
+        self.log_view.append(block)
+        sb = self.log_view.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _ai_diagnose_reset_btn(self):
+        try:
+            self.btn_ai_diagnose.setEnabled(True)
+            self.btn_ai_diagnose.setText("🤖 AI 诊断")
+        except Exception:
+            pass
 
     # ── 托盘/关闭 ──
     def show_window(self):
