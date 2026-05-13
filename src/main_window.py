@@ -1814,10 +1814,7 @@ class MainWindow(QMainWindow):
             self._ai_diagnose_reset_btn()
             return
 
-        # 任务开始时自动展开日志
-        if not self._log_visible and ("▶" in msg or "开始执行" in msg):
-            self.btn_log_toggle.setChecked(True)
-            self._toggle_log(True)
+        # 注：任务开始时不再自动展开日志面板，由用户手动控制
 
         # 根据内容着色
         if "✅" in msg or "成功" in msg or "完成" in msg:
