@@ -139,6 +139,9 @@ class TaskExecutor:
         p4_client = action.get("p4_client", "").strip()
         force = action.get("force", False)
         auto_login = action.get("auto_login", True)
+        revert_dll_before = action.get("revert_dll_before_sync", False)
+        refresh_dll_after = action.get("refresh_dll_after_sync", False)
+        dll_depot_path = action.get("dll_depot_path", "").strip()
 
         if not depot_path:
             return ActionResult(False, f"[{label}] 未配置 Depot 路径")
@@ -158,6 +161,23 @@ class TaskExecutor:
             if not login_result.success:
                 return login_result
             self._log(f"  ✅ P4 登录成功")
+
+        dll_target = dll_depot_path or self._derive_dll_depot_path(depot_path)
+
+        # ---- 可选：同步前还原本地 DLL 修改 ----
+        if revert_dll_before:
+            if not dll_target:
+                return ActionResult(False, f"[{label}] 已启用 DLL 还原，但无法从 Depot 路径推导 DLL 路径，请手动填写 DLL 路径")
+            self._log(f"  → 同步前还原 DLL: {dll_target}")
+            try:
+                rc, out = self._p4_quick(["p4", "revert", dll_target], env, timeout=180)
+            except FileNotFoundError:
+                return ActionResult(False, f"[{label}] 未找到 p4 命令，请确保 Perforce 客户端已安装并在 PATH 中")
+            except subprocess.TimeoutExpired:
+                return ActionResult(False, f"[{label}] DLL 还原超时（>3 分钟）")
+            if rc != 0 and not self._is_p4_noop(out):
+                return ActionResult(False, f"[{label}] DLL 还原失败 (p4 revert code {rc})", out)
+            self._log("  ✅ DLL 还原检查完成")
 
         # ---- 执行 sync ----
         cmd = ["p4", "sync"]
@@ -277,10 +297,20 @@ class TaskExecutor:
 
             # "file(s) up-to-date" 是成功场景，单独放行
             if hit and hit[0] == "file(s) up-to-date":
-                return ActionResult(True, f"[{label}] P4 Sync 完成：{hit[1]}", output)
+                post_ok, post_output = self._p4_refresh_dll_if_needed(
+                    refresh_dll_after, dll_target, env, label
+                )
+                if not post_ok:
+                    return ActionResult(False, f"[{label}] P4 Sync 完成，但 DLL 强制刷新失败", output + "\n" + post_output)
+                return ActionResult(True, f"[{label}] P4 Sync 完成：{hit[1]}", output + ("\n" + post_output if post_output else ""))
 
             if proc.returncode == 0 and not hit:
-                return ActionResult(True, f"[{label}] P4 Sync 成功（{summary}）", output)
+                post_ok, post_output = self._p4_refresh_dll_if_needed(
+                    refresh_dll_after, dll_target, env, label
+                )
+                if not post_ok:
+                    return ActionResult(False, f"[{label}] P4 Sync 成功，但 DLL 强制刷新失败", output + "\n" + post_output)
+                return ActionResult(True, f"[{label}] P4 Sync 成功（{summary}）", output + ("\n" + post_output if post_output else ""))
             else:
                 if hit:
                     reason = hit[1]
@@ -297,6 +327,71 @@ class TaskExecutor:
             return ActionResult(False, f"[{label}] P4 Sync 超时（>10 分钟），已强制终止")
         except FileNotFoundError:
             return ActionResult(False, f"[{label}] 未找到 p4 命令，请确保 Perforce 客户端已安装并在 PATH 中")
+
+    @staticmethod
+    def _derive_dll_depot_path(depot_path: str) -> str:
+        """从 P4 同步路径推导递归 DLL 通配符路径。"""
+        path = (depot_path or "").strip().replace("\\", "/")
+        if not path:
+            return ""
+        if path.lower().endswith(".dll"):
+            return path
+        if path.endswith("/.../*"):
+            return path[:-5].rstrip("/") + "/.../*.dll"
+        if path.endswith("/..."):
+            return path[:-4].rstrip("/") + "/.../*.dll"
+        if path.endswith("..."):
+            return path[:-3].rstrip("/") + "/.../*.dll"
+        if path.endswith("/"):
+            return path + ".../*.dll"
+        return path.rstrip("/") + "/.../*.dll"
+
+    @staticmethod
+    def _is_p4_noop(output: str) -> bool:
+        """p4 revert/sync 的无操作输出不应视为失败。"""
+        low = (output or "").lower()
+        noop_markers = (
+            "file(s) not opened on this client",
+            "file(s) not opened",
+            "file(s) up-to-date",
+            "no file(s) to resolve",
+        )
+        return any(m in low for m in noop_markers)
+
+    def _p4_quick(self, cmd: list, env: dict, timeout: int = 180) -> tuple:
+        """运行短 P4 命令，返回 (returncode, output)。"""
+        result = subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+        return result.returncode, (result.stdout + result.stderr).strip()
+
+    def _p4_refresh_dll_if_needed(self, enabled: bool, dll_target: str, env: dict, label: str) -> tuple:
+        """同步后按需强制刷新 DLL，返回 (ok, output)。"""
+        if not enabled:
+            return True, ""
+        if not dll_target:
+            return False, "已启用 DLL 强制刷新，但无法推导 DLL 路径，请手动填写 DLL 路径"
+        self._log(f"  → 同步后强制刷新 DLL: {dll_target}")
+        try:
+            rc, out = self._p4_quick(["p4", "sync", "-f", dll_target], env, timeout=300)
+        except subprocess.TimeoutExpired:
+            return False, "DLL 强制刷新超时（>5 分钟）"
+        if rc != 0 and not self._is_p4_noop(out):
+            return False, out
+        preview_lines = [line for line in out.splitlines() if line.strip()]
+        if preview_lines:
+            shown = "\n".join(preview_lines[:10])
+            if len(preview_lines) > 10:
+                shown += f"\n... (DLL 刷新输出共 {len(preview_lines)} 行，已截断)"
+            self._log(shown)
+        self._log("  ✅ DLL 强制刷新完成")
+        return True, out
 
     def _p4_login(self, env: dict, passwd: str, label: str) -> ActionResult:
         """用密码执行 p4 login（通过 stdin 传入密码）"""

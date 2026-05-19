@@ -1766,7 +1766,13 @@ class MainWindow(QMainWindow):
             if plat: parts.append(f"platform={plat}")
             return parts or None
         if atype == "p4_sync":
-            return [f"p4 sync {action.get('sync_path','')}"]
+            parts = [f"p4 sync {action.get('depot_path','')}"]
+            dll_path = action.get("dll_depot_path", "")
+            if action.get("revert_dll_before_sync"):
+                parts.append(f"pre: p4 revert {dll_path or '<auto-dll-path>'}")
+            if action.get("refresh_dll_after_sync"):
+                parts.append(f"post: p4 sync -f {dll_path or '<auto-dll-path>'}")
+            return parts
         return None
 
     def _run_task_as_admin(self, task: Optional[Dict] = None):

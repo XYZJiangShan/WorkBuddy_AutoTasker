@@ -275,6 +275,25 @@ class P4SyncPanel(QWidget):
         opts_row.addStretch()
         layout.addLayout(opts_row)
 
+        layout.addSpacing(4)
+        layout.addWidget(_section("DLL 冲突修复（可选）"))
+        layout.addWidget(_sep())
+
+        self.revert_dll_before = QCheckBox("同步前还原本地 DLL 修改（p4 revert *.dll）")
+        self.revert_dll_before.setToolTip("用于丢弃本地编译/插件产生的 DLL 改动，避免 P4 更新时被本地 DLL 卡住")
+        self.revert_dll_before.setChecked(action.get("revert_dll_before_sync", False))
+        layout.addWidget(self.revert_dll_before)
+
+        self.refresh_dll_after = QCheckBox("同步后强制刷新 DLL（p4 sync -f *.dll）")
+        self.refresh_dll_after.setToolTip("用于每次更新后把 DLL 还原到 P4 版本，解决插件 DLL 与中间文件不一致")
+        self.refresh_dll_after.setChecked(action.get("refresh_dll_after_sync", False))
+        layout.addWidget(self.refresh_dll_after)
+
+        self.dll_depot = QLineEdit(action.get("dll_depot_path", ""))
+        self.dll_depot.setPlaceholderText("留空则从 Depot 路径自动推导：//depot/project/.../*.dll")
+        layout.addLayout(_field_row("DLL 路径", self.dll_depot))
+        layout.addWidget(_hint("💡 如果 P4 更新后经常遇到插件 DLL / Intermediate 缓存冲突，建议勾选同步前还原 + 同步后强制刷新。会丢弃本地 DLL 改动，请确认这些 DLL 不需要保留。"))
+
         layout.addStretch()
 
     def save(self):
@@ -285,6 +304,9 @@ class P4SyncPanel(QWidget):
         self.action["p4_client"] = self.client.text().strip()
         self.action["auto_login"] = self.auto_login.isChecked()
         self.action["force"] = self.force.isChecked()
+        self.action["revert_dll_before_sync"] = self.revert_dll_before.isChecked()
+        self.action["refresh_dll_after_sync"] = self.refresh_dll_after.isChecked()
+        self.action["dll_depot_path"] = self.dll_depot.text().strip()
 
 
 class UEProjectPanel(QWidget):
@@ -356,11 +378,15 @@ class UEProjectPanel(QWidget):
         bo_layout.addWidget(self.cfg_combo)
         bo_layout.addWidget(QLabel("平台:"))
         bo_layout.addWidget(self.plt_combo)
+        btn_debug_game = QPushButton("用 DebugGame")
+        btn_debug_game.setToolTip("切到 DebugGame Editor：本机编译项目 DLL，降低 P4 插件 DLL 更新影响")
+        btn_debug_game.clicked.connect(lambda: self.cfg_combo.setCurrentText("DebugGame Editor"))
+        bo_layout.addWidget(btn_debug_game)
         bo_layout.addStretch()
         self.build_opts.setVisible(self.do_build.isChecked())
         layout.addWidget(self.build_opts)
 
-        layout.addWidget(_hint("💡 引擎路径可选 UnrealEditor.exe / UE4Editor.exe / UnrealBuildTool.exe，会自动反推引擎根目录；留空则从项目路径与常见安装位置检测"))
+        layout.addWidget(_hint("💡 P4 更新后若插件 DLL / Intermediate 容易冲突，编译配置可选 DebugGame Editor：项目 DLL 会由本机重新编译，通常不受 P4 插件 DLL 更新影响。\n💡 引擎路径可选 UnrealEditor.exe / UE4Editor.exe / UnrealBuildTool.exe，会自动反推引擎根目录；留空则从项目路径与常见安装位置检测"))
         layout.addStretch()
 
     def _browse_file(self, edit: QLineEdit, filt: str):
