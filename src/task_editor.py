@@ -16,6 +16,7 @@ from PyQt6.QtGui import QColor, QFont
 
 from config_manager import new_action
 from scheduler import SCHEDULE_PRESETS
+import i18n
 
 # ──────────────────────────────────────────
 #  从主窗口引入主题（运行时动态获取）
@@ -155,15 +156,37 @@ QScrollBar::handle:vertical {{
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 """
 
-ACTION_TYPE_OPTIONS = [
-    ("🔄  P4 同步资产",      "p4_sync"),
-    ("🎮  UE 项目操作",      "ue_project"),
-    ("🖥  启动程序/软件",     "open_software"),
-    ("📁  打开文件夹/文件",   "open_path"),
-    ("💻  执行命令/脚本",     "run_command"),
-]
+def _tr(key: str, **kwargs) -> str:
+    return i18n.t(key, **kwargs)
 
-ACTION_TYPE_NAMES = {v: k for k, v in ACTION_TYPE_OPTIONS}
+
+def _action_type_options():
+    return [
+        (_tr("action_p4_sync"), "p4_sync"),
+        (_tr("action_ue_project"), "ue_project"),
+        (_tr("action_open_software"), "open_software"),
+        (_tr("action_open_path"), "open_path"),
+        (_tr("action_run_command"), "run_command"),
+    ]
+
+
+def _action_type_names():
+    return {v: k for k, v in _action_type_options()}
+
+
+def _schedule_label(label: str) -> str:
+    mapping = {
+        "不设定时": "schedule_none",
+        "每天 09:00": "schedule_daily_9",
+        "每天 10:00": "schedule_daily_10",
+        "每天 18:00": "schedule_daily_18",
+        "每周一 09:00": "schedule_weekly_mon_9",
+        "每小时": "schedule_hourly",
+        "每30分钟": "schedule_30min",
+        "自定义...": "schedule_custom",
+    }
+    key = mapping.get(label)
+    return _tr(key) if key else label
 
 
 def _sep() -> QFrame:
@@ -182,7 +205,7 @@ def _section(text: str) -> QLabel:
 
 
 def _browse_btn(callback) -> QPushButton:
-    btn = QPushButton("浏览")
+    btn = QPushButton(_tr("browse"))
     btn.setFixedWidth(52)
     btn.setStyleSheet("padding:4px 6px;font-size:12px;")
     btn.clicked.connect(callback)
@@ -225,33 +248,33 @@ class P4SyncPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(8)
-        layout.addWidget(_section("P4 同步配置"))
+        layout.addWidget(_section(_tr("p4_config")))
         layout.addWidget(_sep())
 
         self.depot = QLineEdit(action.get("depot_path", ""))
-        self.depot.setPlaceholderText("//depot/your/path/...  （必填）")
-        layout.addLayout(_field_row("Depot 路径", self.depot))
+        self.depot.setPlaceholderText(_tr("depot_placeholder"))
+        layout.addLayout(_field_row(_tr("depot_path"), self.depot))
 
-        layout.addWidget(_section("连接信息"))
+        layout.addWidget(_section(_tr("connection_info")))
 
         self.port = QLineEdit(action.get("p4_port", ""))
         self.port.setPlaceholderText("例: 21.214.252.179:1666")
-        layout.addLayout(_field_row("P4 服务器", self.port))
+        layout.addLayout(_field_row(_tr("p4_server"), self.port))
 
         self.user = QLineEdit(action.get("p4_user", ""))
-        self.user.setPlaceholderText("用户名")
-        layout.addLayout(_field_row("用户名", self.user))
+        self.user.setPlaceholderText(_tr("username"))
+        layout.addLayout(_field_row(_tr("username"), self.user))
 
         self.passwd = QLineEdit(action.get("p4_passwd", ""))
-        self.passwd.setPlaceholderText("密码（留空不自动登录）")
+        self.passwd.setPlaceholderText(_tr("password_placeholder"))
         self.passwd.setEchoMode(QLineEdit.EchoMode.Password)
-        show_pw = QCheckBox("显示")
+        show_pw = QCheckBox(_tr("show"))
         show_pw.setFixedWidth(54)
         show_pw.toggled.connect(lambda c: self.passwd.setEchoMode(
             QLineEdit.EchoMode.Normal if c else QLineEdit.EchoMode.Password))
         pw_row = QHBoxLayout()
         pw_row.setSpacing(6)
-        lbl = QLabel("密码")
+        lbl = QLabel(_tr("password"))
         lbl.setFixedWidth(80)
         lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         lbl.setStyleSheet("color: #8a8aaa; font-size: 12px;")
@@ -261,12 +284,12 @@ class P4SyncPanel(QWidget):
         layout.addLayout(pw_row)
 
         self.client = QLineEdit(action.get("p4_client", ""))
-        self.client.setPlaceholderText("工作区名称（例: Witches_Feature_Prototype）")
-        layout.addLayout(_field_row("工作区", self.client))
+        self.client.setPlaceholderText(_tr("workspace_placeholder"))
+        layout.addLayout(_field_row(_tr("workspace"), self.client))
 
-        self.auto_login = QCheckBox("执行前自动登录")
+        self.auto_login = QCheckBox(_tr("auto_login"))
         self.auto_login.setChecked(action.get("auto_login", True))
-        self.force = QCheckBox("强制同步（-f）")
+        self.force = QCheckBox(_tr("force_sync"))
         self.force.setChecked(action.get("force", False))
         opts_row = QHBoxLayout()
         opts_row.addWidget(self.auto_login)
@@ -276,23 +299,23 @@ class P4SyncPanel(QWidget):
         layout.addLayout(opts_row)
 
         layout.addSpacing(4)
-        layout.addWidget(_section("DLL 冲突修复（可选）"))
+        layout.addWidget(_section(_tr("dll_fix")))
         layout.addWidget(_sep())
 
-        self.revert_dll_before = QCheckBox("同步前还原本地 DLL 修改（p4 revert *.dll）")
-        self.revert_dll_before.setToolTip("用于丢弃本地编译/插件产生的 DLL 改动，避免 P4 更新时被本地 DLL 卡住")
+        self.revert_dll_before = QCheckBox(_tr("revert_dll"))
+        self.revert_dll_before.setToolTip(_tr("revert_dll_tip"))
         self.revert_dll_before.setChecked(action.get("revert_dll_before_sync", False))
         layout.addWidget(self.revert_dll_before)
 
-        self.refresh_dll_after = QCheckBox("同步后强制刷新 DLL（p4 sync -f *.dll）")
-        self.refresh_dll_after.setToolTip("用于每次更新后把 DLL 还原到 P4 版本，解决插件 DLL 与中间文件不一致")
+        self.refresh_dll_after = QCheckBox(_tr("refresh_dll"))
+        self.refresh_dll_after.setToolTip(_tr("refresh_dll_tip"))
         self.refresh_dll_after.setChecked(action.get("refresh_dll_after_sync", False))
         layout.addWidget(self.refresh_dll_after)
 
         self.dll_depot = QLineEdit(action.get("dll_depot_path", ""))
-        self.dll_depot.setPlaceholderText("留空则从 Depot 路径自动推导：//depot/project/.../*.dll")
-        layout.addLayout(_field_row("DLL 路径", self.dll_depot))
-        layout.addWidget(_hint("💡 如果 P4 更新后经常遇到插件 DLL / Intermediate 缓存冲突，建议勾选同步前还原 + 同步后强制刷新。会丢弃本地 DLL 改动，请确认这些 DLL 不需要保留。"))
+        self.dll_depot.setPlaceholderText(_tr("dll_path_placeholder"))
+        layout.addLayout(_field_row(_tr("dll_path"), self.dll_depot))
+        layout.addWidget(_hint(_tr("dll_hint")))
 
         layout.addStretch()
 
@@ -317,34 +340,34 @@ class UEProjectPanel(QWidget):
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(8)
 
-        layout.addWidget(_section("项目文件"))
+        layout.addWidget(_section(_tr("project_file")))
         layout.addWidget(_sep())
 
         self.uproject = QLineEdit(action.get("uproject_path", ""))
-        self.uproject.setPlaceholderText("选择 .uproject 文件  （必填）")
+        self.uproject.setPlaceholderText(_tr("uproject_placeholder"))
         layout.addLayout(_field_row(".uproject", self.uproject,
-            lambda: self._browse_file(self.uproject, "UE项目 (*.uproject)")))
+            lambda: self._browse_file(self.uproject, _tr("ue_project_filter"))))
 
         self.engine = QLineEdit(action.get("engine_path", ""))
-        self.engine.setPlaceholderText("引擎根目录，可直接选 UnrealEditor.exe 自动识别；留空自动检测")
-        layout.addLayout(_field_row("引擎路径", self.engine,
+        self.engine.setPlaceholderText(_tr("engine_placeholder"))
+        layout.addLayout(_field_row(_tr("engine_path"), self.engine,
             lambda: self._browse_engine(self.engine)))
 
         layout.addSpacing(4)
-        layout.addWidget(_section("执行步骤"))
+        layout.addWidget(_section(_tr("execution_steps")))
         layout.addWidget(_sep())
 
-        self.do_gen = QCheckBox("① Generate VS Project Files  （重新生成 .sln）")
+        self.do_gen = QCheckBox(_tr("do_generate"))
         self.do_gen.setChecked(action.get("do_generate", True) is not False)
 
-        self.do_sln = QCheckBox("② 打开 Visual Studio  （.sln）")
+        self.do_sln = QCheckBox(_tr("do_open_sln"))
         self.do_sln.setChecked(action.get("do_open_sln", True) is not False)
 
-        self.do_build = QCheckBox("③ 后台编译  （MSBuild）")
+        self.do_build = QCheckBox(_tr("do_build"))
         self.do_build.setChecked(action.get("do_build", False) is True)
         self.do_build.toggled.connect(self._toggle_build_opts)
 
-        self.do_launch = QCheckBox("④ 启动 UE Editor  （本地调试模式）")
+        self.do_launch = QCheckBox(_tr("do_launch"))
         self.do_launch.setChecked(action.get("do_launch_editor", False) is True)
 
         layout.addWidget(self.do_gen)
@@ -374,28 +397,28 @@ class UEProjectPanel(QWidget):
         if idx2 >= 0:
             self.plt_combo.setCurrentIndex(idx2)
 
-        bo_layout.addWidget(QLabel("配置:"))
+        bo_layout.addWidget(QLabel(_tr("config")))
         bo_layout.addWidget(self.cfg_combo)
-        bo_layout.addWidget(QLabel("平台:"))
+        bo_layout.addWidget(QLabel(_tr("platform")))
         bo_layout.addWidget(self.plt_combo)
-        btn_debug_game = QPushButton("用 DebugGame")
-        btn_debug_game.setToolTip("切到 DebugGame Editor：本机编译项目 DLL，降低 P4 插件 DLL 更新影响")
+        btn_debug_game = QPushButton(_tr("use_debug_game"))
+        btn_debug_game.setToolTip(_tr("use_debug_game_tip"))
         btn_debug_game.clicked.connect(lambda: self.cfg_combo.setCurrentText("DebugGame Editor"))
         bo_layout.addWidget(btn_debug_game)
         bo_layout.addStretch()
         self.build_opts.setVisible(self.do_build.isChecked())
         layout.addWidget(self.build_opts)
 
-        layout.addWidget(_hint("💡 P4 更新后若插件 DLL / Intermediate 容易冲突，编译配置可选 DebugGame Editor：项目 DLL 会由本机重新编译，通常不受 P4 插件 DLL 更新影响。\n💡 引擎路径可选 UnrealEditor.exe / UE4Editor.exe / UnrealBuildTool.exe，会自动反推引擎根目录；留空则从项目路径与常见安装位置检测"))
+        layout.addWidget(_hint(_tr("ue_hint")))
         layout.addStretch()
 
     def _browse_file(self, edit: QLineEdit, filt: str):
-        path, _ = QFileDialog.getOpenFileName(self, "选择文件", "", filt + ";;所有文件 (*.*)")
+        path, _ = QFileDialog.getOpenFileName(self, _tr("select_file"), "", filt + ";;" + _tr("all_files"))
         if path:
             edit.setText(path)
 
     def _browse_dir(self, edit: QLineEdit):
-        path = QFileDialog.getExistingDirectory(self, "选择文件夹")
+        path = QFileDialog.getExistingDirectory(self, _tr("select_folder"))
         if path:
             edit.setText(path)
 
@@ -403,16 +426,16 @@ class UEProjectPanel(QWidget):
         """引擎路径：先让用户选 exe（自动反推引擎根），取消则退回到选文件夹"""
         start_dir = edit.text().strip() or ""
         path, _ = QFileDialog.getOpenFileName(
-            self, "选择 UE 引擎可执行文件（取消可改为选文件夹）",
+            self, _tr("select_engine_exe"),
             start_dir,
-            "UE 可执行文件 (UnrealEditor.exe UE4Editor.exe UnrealBuildTool.exe);;所有 exe (*.exe);;所有文件 (*.*)"
+            _tr("ue_file_filter")
         )
         if path:
             root = self._resolve_engine_root_from_exe(path)
             edit.setText(root or path)
             return
         # 用户取消 → 退回选文件夹模式
-        folder = QFileDialog.getExistingDirectory(self, "选择引擎根目录", start_dir)
+        folder = QFileDialog.getExistingDirectory(self, _tr("select_engine_root"), start_dir)
         if folder:
             edit.setText(folder)
 
@@ -461,22 +484,22 @@ class OpenSoftwarePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(8)
-        layout.addWidget(_section("启动程序"))
+        layout.addWidget(_section(_tr("program")))
         layout.addWidget(_sep())
 
         self.exe = QLineEdit(action.get("exe_path", ""))
-        self.exe.setPlaceholderText("选择 .exe 文件  （必填）")
-        layout.addLayout(_field_row("程序路径", self.exe,
+        self.exe.setPlaceholderText(_tr("program_placeholder"))
+        layout.addLayout(_field_row(_tr("program_path"), self.exe,
             lambda: self._browse()))
 
         self.args = QLineEdit(action.get("args", ""))
-        self.args.setPlaceholderText("启动参数（可选）")
-        layout.addLayout(_field_row("启动参数", self.args))
+        self.args.setPlaceholderText(_tr("args_placeholder"))
+        layout.addLayout(_field_row(_tr("args"), self.args))
         layout.addStretch()
 
     def _browse(self):
-        path, _ = QFileDialog.getOpenFileName(self, "选择程序", "",
-            "可执行文件 (*.exe *.bat *.cmd);;所有文件 (*.*)")
+        path, _ = QFileDialog.getOpenFileName(self, _tr("select_program"), "",
+            _tr("exe_filter"))
         if path:
             self.exe.setText(path)
 
@@ -492,18 +515,18 @@ class OpenPathPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(8)
-        layout.addWidget(_section("打开路径"))
+        layout.addWidget(_section(_tr("open_path")))
         layout.addWidget(_sep())
 
         self.path = QLineEdit(action.get("path", ""))
-        self.path.setPlaceholderText("文件夹或文件路径  （必填）")
-        layout.addLayout(_field_row("路径", self.path))
+        self.path.setPlaceholderText(_tr("path_placeholder"))
+        layout.addLayout(_field_row(_tr("path"), self.path))
 
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(86, 0, 0, 0)
-        b1 = QPushButton("选择文件夹")
+        b1 = QPushButton(_tr("select_folder"))
         b1.clicked.connect(lambda: self._browse_dir())
-        b2 = QPushButton("选择文件")
+        b2 = QPushButton(_tr("select_file_button"))
         b2.clicked.connect(lambda: self._browse_file())
         btn_row.addWidget(b1)
         btn_row.addWidget(b2)
@@ -512,12 +535,12 @@ class OpenPathPanel(QWidget):
         layout.addStretch()
 
     def _browse_dir(self):
-        p = QFileDialog.getExistingDirectory(self, "选择文件夹")
+        p = QFileDialog.getExistingDirectory(self, _tr("select_folder"))
         if p:
             self.path.setText(p)
 
     def _browse_file(self):
-        p, _ = QFileDialog.getOpenFileName(self, "选择文件", "", "所有文件 (*.*)")
+        p, _ = QFileDialog.getOpenFileName(self, _tr("select_file"), "", _tr("all_files"))
         if p:
             self.path.setText(p)
 
@@ -532,27 +555,27 @@ class RunCommandPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(8)
-        layout.addWidget(_section("执行命令"))
+        layout.addWidget(_section(_tr("run_command")))
         layout.addWidget(_sep())
 
         self.cmd = QTextEdit()
         self.cmd.setPlainText(action.get("command", ""))
-        self.cmd.setPlaceholderText("输入要执行的命令（必填）\n例: git pull\n    pip install -r requirements.txt")
+        self.cmd.setPlaceholderText(_tr("command_placeholder"))
         self.cmd.setFixedHeight(80)
-        layout.addLayout(_field_row("命令", self.cmd))
+        layout.addLayout(_field_row(_tr("command"), self.cmd))
 
         self.workdir = QLineEdit(action.get("working_dir", ""))
-        self.workdir.setPlaceholderText("执行目录（可选）")
-        layout.addLayout(_field_row("工作目录", self.workdir,
+        self.workdir.setPlaceholderText(_tr("working_dir_placeholder"))
+        layout.addLayout(_field_row(_tr("working_dir"), self.workdir,
             lambda: self._browse()))
 
-        self.shell = QCheckBox("使用 Shell 执行")
+        self.shell = QCheckBox(_tr("use_shell"))
         self.shell.setChecked(action.get("shell", True))
         layout.addWidget(self.shell)
         layout.addStretch()
 
     def _browse(self):
-        p = QFileDialog.getExistingDirectory(self, "选择工作目录")
+        p = QFileDialog.getExistingDirectory(self, _tr("working_dir"))
         if p:
             self.workdir.setText(p)
 
@@ -613,13 +636,13 @@ class TaskEditorDialog(QDialog):
         tb_l.setContentsMargins(16, 0, 8, 0)
         tb_l.setSpacing(10)
 
-        title_lbl = QLabel("新建任务" if self.is_new else f"编辑  ·  {self.task.get('name', '')}")
+        title_lbl = QLabel(_tr("task_new_title") if self.is_new else _tr("task_edit_title", name=self.task.get("name", "")))
         title_lbl.setStyleSheet(
             f"font-size:14px;font-weight:bold;color:{c['text']};background:transparent;")
         btn_close = QPushButton("✕")
         btn_close.setObjectName("btn_win_close")
         btn_close.setFixedSize(30, 30)
-        btn_close.setToolTip("关闭")
+        btn_close.setToolTip(_tr("close"))
         btn_close.clicked.connect(self.reject)
 
         tb_l.addWidget(title_lbl)
@@ -638,18 +661,18 @@ class TaskEditorDialog(QDialog):
         info_row = QHBoxLayout()
         info_row.setSpacing(12)
 
-        name_lbl = QLabel("任务名称")
+        name_lbl = QLabel(_tr("task_name"))
         name_lbl.setStyleSheet(f"color:{c['text2']};font-size:12px;background:transparent;")
         name_lbl.setFixedWidth(56)
         self.name_edit = QLineEdit(self.task.get("name", ""))
-        self.name_edit.setPlaceholderText("输入任务名称（必填）")
+        self.name_edit.setPlaceholderText(_tr("task_name_placeholder"))
         self.name_edit.setFixedHeight(32)
 
-        desc_lbl = QLabel("描述")
+        desc_lbl = QLabel(_tr("description"))
         desc_lbl.setStyleSheet(f"color:{c['text2']};font-size:12px;background:transparent;")
         desc_lbl.setFixedWidth(30)
         self.desc_edit = QLineEdit(self.task.get("description", ""))
-        self.desc_edit.setPlaceholderText("可选")
+        self.desc_edit.setPlaceholderText(_tr("optional"))
         self.desc_edit.setFixedHeight(32)
 
         info_row.addWidget(name_lbl)
@@ -670,7 +693,7 @@ class TaskEditorDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(6)
 
-        left_layout.addWidget(_section("操作步骤"))
+        left_layout.addWidget(_section(_tr("steps")))
         self.step_list = QListWidget()
         self.step_list.setMinimumHeight(180)
         self.step_list.currentRowChanged.connect(self._on_step_selected)
@@ -680,17 +703,17 @@ class TaskEditorDialog(QDialog):
         step_btns.setSpacing(4)
         self.btn_up = QPushButton("↑")
         self.btn_up.setFixedSize(28, 28)
-        self.btn_up.setToolTip("上移")
+        self.btn_up.setToolTip(_tr("move_up"))
         self.btn_up.clicked.connect(lambda: self._move_step(-1))
         self.btn_dn = QPushButton("↓")
         self.btn_dn.setFixedSize(28, 28)
-        self.btn_dn.setToolTip("下移")
+        self.btn_dn.setToolTip(_tr("move_down"))
         self.btn_dn.clicked.connect(lambda: self._move_step(1))
-        self.chk_step_enabled = QCheckBox("启用")
-        self.chk_step_enabled.setToolTip("关闭后，执行时将跳过当前步骤")
+        self.chk_step_enabled = QCheckBox(_tr("enabled"))
+        self.chk_step_enabled.setToolTip(_tr("enabled_tip"))
         self.chk_step_enabled.setEnabled(False)  # 未选中步骤时禁用
         self.chk_step_enabled.toggled.connect(self._on_step_enabled_toggled)
-        self.btn_del_step = QPushButton("删除")
+        self.btn_del_step = QPushButton(_tr("delete"))
         self.btn_del_step.setObjectName("btn_del_step")
         self.btn_del_step.setFixedHeight(28)
         self.btn_del_step.clicked.connect(self._delete_step)
@@ -702,14 +725,14 @@ class TaskEditorDialog(QDialog):
         left_layout.addLayout(step_btns)
 
         left_layout.addWidget(_sep())
-        add_lbl = QLabel("添加步骤")
+        add_lbl = QLabel(_tr("add_step"))
         add_lbl.setStyleSheet(f"color:{c['text2']};font-size:11px;background:transparent;")
         left_layout.addWidget(add_lbl)
         self.type_combo = QComboBox()
-        for name, key in ACTION_TYPE_OPTIONS:
+        for name, key in _action_type_options():
             self.type_combo.addItem(name, key)
         left_layout.addWidget(self.type_combo)
-        btn_add = QPushButton("＋  添加")
+        btn_add = QPushButton(_tr("add"))
         btn_add.setObjectName("btn_add_step")
         btn_add.setFixedHeight(30)
         btn_add.clicked.connect(self._add_step)
@@ -724,7 +747,7 @@ class TaskEditorDialog(QDialog):
         self.panel_stack = QStackedWidget()
         empty_page = QWidget()
         ep_layout = QVBoxLayout(empty_page)
-        empty_lbl = QLabel("← 从左侧选择或添加步骤")
+        empty_lbl = QLabel(_tr("empty_step_hint"))
         empty_lbl.setStyleSheet(f"color:{c['text2']};font-size:13px;background:transparent;")
         empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ep_layout.addWidget(empty_lbl)
@@ -739,12 +762,12 @@ class TaskEditorDialog(QDialog):
         bottom = QHBoxLayout()
         bottom.setSpacing(12)
 
-        sched_lbl = QLabel("定时执行:")
+        sched_lbl = QLabel(_tr("schedule"))
         sched_lbl.setStyleSheet(f"color:{c['text2']};font-size:12px;background:transparent;")
         self.sched_combo = QComboBox()
         self.sched_combo.setMinimumWidth(150)
         for label, val in SCHEDULE_PRESETS:
-            self.sched_combo.addItem(label, val)
+            self.sched_combo.addItem(_schedule_label(label), val)
         self.sched_combo.currentIndexChanged.connect(self._on_sched_changed)
 
         self.custom_sched = QWidget()
@@ -752,14 +775,14 @@ class TaskEditorDialog(QDialog):
         cs_layout.setContentsMargins(0, 0, 0, 0)
         cs_layout.setSpacing(6)
         self.sched_type = QComboBox()
-        self.sched_type.addItem("每天定时", "cron")
-        self.sched_type.addItem("按间隔", "interval")
+        self.sched_type.addItem(_tr("schedule_daily_custom"), "cron")
+        self.sched_type.addItem(_tr("schedule_interval"), "interval")
         self.cron_h = QSpinBox(); self.cron_h.setRange(0, 23); self.cron_h.setFixedWidth(50)
         self.cron_m = QSpinBox(); self.cron_m.setRange(0, 59); self.cron_m.setFixedWidth(50)
         self.int_h = QSpinBox(); self.int_h.setRange(0, 23); self.int_h.setSuffix("h"); self.int_h.setFixedWidth(56)
         self.int_m = QSpinBox(); self.int_m.setRange(0, 59); self.int_m.setSuffix("m"); self.int_m.setFixedWidth(56)
         cs_layout.addWidget(self.sched_type)
-        cs_layout.addWidget(QLabel("时:"))
+        cs_layout.addWidget(QLabel(_tr("hour_label")))
         cs_layout.addWidget(self.cron_h)
         cs_layout.addWidget(QLabel(":"))
         cs_layout.addWidget(self.cron_m)
@@ -772,10 +795,10 @@ class TaskEditorDialog(QDialog):
         bottom.addWidget(self.custom_sched)
         bottom.addStretch()
 
-        btn_cancel = QPushButton("取消")
+        btn_cancel = QPushButton(_tr("cancel"))
         btn_cancel.setFixedHeight(34)
         btn_cancel.clicked.connect(self.reject)
-        self.btn_save = QPushButton("保存任务")
+        self.btn_save = QPushButton(_tr("save_task"))
         self.btn_save.setObjectName("btn_save")
         self.btn_save.setFixedHeight(34)
         self.btn_save.clicked.connect(self._save)
@@ -823,7 +846,7 @@ class TaskEditorDialog(QDialog):
         self.step_entries.append({"action": action, "panel": panel, "stack_idx": stack_idx})
 
         # 列表项
-        type_label = ACTION_TYPE_NAMES.get(action["type"], action["type"])
+        type_label = _action_type_names().get(action["type"], action["type"])
         label = action.get("label") or type_label
         item = QListWidgetItem(label)
         item.setData(Qt.ItemDataRole.UserRole, len(self.step_entries) - 1)
@@ -863,7 +886,7 @@ class TaskEditorDialog(QDialog):
     def _refresh_list_labels(self):
         from PyQt6.QtGui import QColor, QFont
         for i, entry in enumerate(self.step_entries):
-            type_label = ACTION_TYPE_NAMES.get(entry["action"]["type"], entry["action"]["type"])
+            type_label = _action_type_names().get(entry["action"]["type"], entry["action"]["type"])
             label = entry["action"].get("label") or type_label
             enabled = entry["action"].get("enabled", True)
             prefix = "" if enabled else "🚫 "
@@ -899,7 +922,7 @@ class TaskEditorDialog(QDialog):
             scroll.setWidget(entry["panel"])
             idx = self.panel_stack.addWidget(scroll)
             entry["stack_idx"] = idx
-            type_label = ACTION_TYPE_NAMES.get(entry["action"]["type"], entry["action"]["type"])
+            type_label = _action_type_names().get(entry["action"]["type"], entry["action"]["type"])
             label = entry["action"].get("label") or type_label
             item = QListWidgetItem(f"{i+1}. {label}")
             item.setData(Qt.ItemDataRole.UserRole, i)
@@ -973,7 +996,7 @@ class TaskEditorDialog(QDialog):
             msg = QMessageBox(self)
             msg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
             msg.setStyleSheet(self.styleSheet())
-            msg.setText("请输入任务名称")
+            msg.setText(_tr("enter_task_name"))
             msg.exec()
             self.name_edit.setFocus()
             return

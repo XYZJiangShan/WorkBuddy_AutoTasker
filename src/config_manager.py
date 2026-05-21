@@ -177,6 +177,7 @@ def load_settings() -> Dict[str, Any]:
         "minimize_to_tray": True,
         "start_with_windows": False,
         "theme": "nebula",
+        "language": "zh",
         "log_max_lines": 500,
     }
     data = _safe_load_json(SETTINGS_FILE, {})

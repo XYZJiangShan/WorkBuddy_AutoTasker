@@ -24,6 +24,7 @@ from executor import TaskExecutor
 from scheduler import TaskScheduler
 from task_editor import TaskEditorDialog
 import ai_diagnose
+import i18n
 
 # ── LOGO 路径 ──
 def _logo_path(size: int = 256) -> str:
@@ -450,6 +451,14 @@ TYPE_BADGE_COLOR = {
     "open_software": "#22c55e", "open_path": "#38bdf8", "run_command": "#f472b6",
 }
 
+def _tr(key: str, **kwargs) -> str:
+    return i18n.t(key, **kwargs)
+
+
+def _theme_name(key: str, theme: Dict[str, Any]) -> str:
+    return _tr(f"theme_name_{key}") if key in THEMES else theme.get("name", key)
+
+
 def _is_shortcut(task):
     a = task.get("actions", [])
     return len(a) == 1 and a[0].get("type", "") in SIMPLE_TYPES
@@ -788,9 +797,10 @@ class MainWindow(QMainWindow):
         self._group_grids: Dict[str, QGridLayout] = {}
         self._group_grid_ws: Dict[str, QWidget] = {}
 
-        # 加载主题
+        # 加载主题和语言
         saved_theme = self.settings.get("theme", "nebula")
         set_theme(saved_theme)
+        i18n.set_language(self.settings.get("language", "zh"))
 
         self.executor = TaskExecutor(log_callback=lambda m: self.log_signal.emit(m))
         self.scheduler = TaskScheduler(run_task_callback=self._on_scheduled)
@@ -860,33 +870,40 @@ class MainWindow(QMainWindow):
         # 搜索框
         self.search_box = QLineEdit()
         self.search_box.setObjectName("search_box")
-        self.search_box.setPlaceholderText("🔍  搜索任务...")
+        self.search_box.setPlaceholderText(_tr("search_placeholder"))
         self.search_box.setFixedWidth(220)
         self.search_box.setFixedHeight(32)
         self.search_box.textChanged.connect(self._on_search)
 
         # 状态
-        self.status_lbl = QLabel("就绪")
+        self.status_lbl = QLabel(_tr("status_ready"))
         self.status_lbl.setStyleSheet(f"color:{C['text2']};font-size:12px;background:transparent;")
 
         # 主题切换按钮
         self.btn_theme = QPushButton("🎨")
         self.btn_theme.setObjectName("btn_theme")
         self.btn_theme.setFixedSize(32, 32)
-        self.btn_theme.setToolTip("切换主题")
+        self.btn_theme.setToolTip(_tr("theme_tooltip"))
         self.btn_theme.clicked.connect(self._show_theme_menu)
+
+        # 语言切换按钮
+        self.btn_language = QPushButton("🌐")
+        self.btn_language.setObjectName("btn_theme")
+        self.btn_language.setFixedSize(32, 32)
+        self.btn_language.setToolTip(_tr("language_tooltip"))
+        self.btn_language.clicked.connect(self._show_language_menu)
 
         # ── 窗口控制按钮 ──
         self.btn_win_min = QPushButton("—")
         self.btn_win_min.setObjectName("btn_win_ctrl")
         self.btn_win_min.setFixedSize(32, 32)
-        self.btn_win_min.setToolTip("最小化")
+        self.btn_win_min.setToolTip(_tr("minimize"))
         self.btn_win_min.clicked.connect(self.showMinimized)
 
         self.btn_win_close = QPushButton("✕")
         self.btn_win_close.setObjectName("btn_win_close")
         self.btn_win_close.setFixedSize(32, 32)
-        self.btn_win_close.setToolTip("关闭到托盘")
+        self.btn_win_close.setToolTip(_tr("close_to_tray"))
         self.btn_win_close.clicked.connect(self.close)
 
         hl.addWidget(logo)
@@ -896,6 +913,7 @@ class MainWindow(QMainWindow):
         hl.addStretch()
         hl.addWidget(self.status_lbl)
         hl.addWidget(self.btn_theme)
+        hl.addWidget(self.btn_language)
         hl.addSpacing(4)
         hl.addWidget(self.btn_win_min)
         hl.addWidget(self.btn_win_close)
@@ -922,20 +940,20 @@ class MainWindow(QMainWindow):
 
         # 工具栏
         tb = QHBoxLayout()
-        sec_label = QLabel("我的任务")
-        sec_label.setStyleSheet(f"font-size:14px;font-weight:bold;color:{C['text']};background:transparent;")
+        self.sec_label = QLabel(_tr("my_tasks"))
+        self.sec_label.setStyleSheet(f"font-size:14px;font-weight:bold;color:{C['text']};background:transparent;")
 
-        self.btn_add = QPushButton("＋  新建")
+        self.btn_add = QPushButton(_tr("new"))
         self.btn_add.setObjectName("btn_add")
         self.btn_add.setFixedHeight(34)
         self.btn_add.clicked.connect(self._new_task)
 
-        tb.addWidget(sec_label)
+        tb.addWidget(self.sec_label)
         tb.addStretch()
         tb.addWidget(self.btn_add)
 
         # 分类管理按钮
-        self.btn_manage_groups = QPushButton("⚙  分类")
+        self.btn_manage_groups = QPushButton(_tr("categories"))
         self.btn_manage_groups.setObjectName("btn_edit")
         self.btn_manage_groups.setFixedHeight(34)
         self.btn_manage_groups.clicked.connect(self._manage_groups)
@@ -975,7 +993,7 @@ class MainWindow(QMainWindow):
         dp.setSpacing(10)
 
         # 任务名 + 步骤描述（单行，用 · 分隔）
-        self.detail_name = QLabel("← 选择一个任务开始")
+        self.detail_name = QLabel(_tr("select_task_start"))
         self.detail_name.setStyleSheet(
             f"font-size:14px;font-weight:bold;color:{C['text']};background:transparent;")
         self.detail_steps = QLabel("")
@@ -989,14 +1007,14 @@ class MainWindow(QMainWindow):
         dp.addSpacing(8)
 
         # 按钮：执行 | 编辑 | 日志（删除请右键任务卡片）
-        self.btn_run = QPushButton("▶  执行")
+        self.btn_run = QPushButton(_tr("run"))
         self.btn_run.setObjectName("btn_run")
         self.btn_run.setFixedHeight(34)
         self.btn_run.setMinimumWidth(80)
         self.btn_run.setEnabled(False)
         self.btn_run.clicked.connect(self._run_task)
 
-        self.btn_edit2 = QPushButton("✏  编辑")
+        self.btn_edit2 = QPushButton(_tr("edit"))
         self.btn_edit2.setObjectName("btn_edit")
         self.btn_edit2.setFixedHeight(34)
         self.btn_edit2.setMinimumWidth(72)
@@ -1005,7 +1023,7 @@ class MainWindow(QMainWindow):
 
         # 日志展开/折叠按钮
         self._log_visible = False
-        self.btn_log_toggle = QPushButton("📋  日志")
+        self.btn_log_toggle = QPushButton(_tr("log"))
         self.btn_log_toggle.setObjectName("btn_edit")
         self.btn_log_toggle.setFixedHeight(34)
         self.btn_log_toggle.setMinimumWidth(72)
@@ -1026,15 +1044,15 @@ class MainWindow(QMainWindow):
         log_vl.setSpacing(4)
 
         log_bar = QHBoxLayout()
-        log_title = QLabel("执行日志")
-        log_title.setStyleSheet(
+        self.log_title = QLabel(_tr("execution_log"))
+        self.log_title.setStyleSheet(
             f"font-size:12px;font-weight:bold;color:{C['text2']};background:transparent;")
 
         # 🤖 AI 诊断
-        self.btn_ai_diagnose = QPushButton("🤖 AI 诊断")
+        self.btn_ai_diagnose = QPushButton(_tr("ai_diagnose"))
         self.btn_ai_diagnose.setFixedHeight(24)
         self.btn_ai_diagnose.setMinimumWidth(82)
-        self.btn_ai_diagnose.setToolTip("把最近一次失败的日志发给 AI 分析")
+        self.btn_ai_diagnose.setToolTip(_tr("ai_diagnose_tip"))
         self.btn_ai_diagnose.setStyleSheet(
             f"font-size:11px;padding:0 8px;background:{C['card']};border:none;"
             f"border-radius:5px;color:{C['text2']};")
@@ -1043,19 +1061,19 @@ class MainWindow(QMainWindow):
         # ⚙ AI 设置
         self.btn_ai_settings = QPushButton("⚙")
         self.btn_ai_settings.setFixedSize(28, 24)
-        self.btn_ai_settings.setToolTip("AI 诊断设置（API Key / 模型）")
+        self.btn_ai_settings.setToolTip(_tr("ai_settings_tip"))
         self.btn_ai_settings.setStyleSheet(
             f"font-size:12px;padding:0;background:{C['card']};border:none;"
             f"border-radius:5px;color:{C['text2']};")
         self.btn_ai_settings.clicked.connect(self._open_ai_settings)
 
-        self.btn_clear = QPushButton("清空")
+        self.btn_clear = QPushButton(_tr("clear"))
         self.btn_clear.setFixedSize(48, 24)
         self.btn_clear.setStyleSheet(
             f"font-size:11px;padding:0 8px;background:{C['card']};border:none;"
             f"border-radius:5px;color:{C['text2']};")
         self.btn_clear.clicked.connect(lambda: self.log_view.clear())
-        log_bar.addWidget(log_title)
+        log_bar.addWidget(self.log_title)
         log_bar.addStretch()
         log_bar.addWidget(self.btn_ai_diagnose)
         log_bar.addWidget(self.btn_ai_settings)
@@ -1068,7 +1086,7 @@ class MainWindow(QMainWindow):
         self.log_view.setMinimumHeight(160)
         self.log_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.log_view.setPlaceholderText("任务执行日志将在这里显示...")
+        self.log_view.setPlaceholderText(_tr("log_placeholder"))
         log_vl.addWidget(self.log_view, 1)
 
         self.log_container.setVisible(False)
@@ -1086,9 +1104,9 @@ class MainWindow(QMainWindow):
         self.tray.setIcon(_make_logo_icon(32))
         self.tray.setToolTip("AutoTasker")
         m = QMenu()
-        m.addAction(QAction("显示", self, triggered=self.show_window))
+        m.addAction(QAction(_tr("tray_show"), self, triggered=self.show_window))
         m.addSeparator()
-        m.addAction(QAction("退出", self, triggered=self._quit))
+        m.addAction(QAction(_tr("tray_exit"), self, triggered=self._quit))
         self.tray.setContextMenu(m)
         self.tray.activated.connect(
             lambda r: self.show_window() if r == QSystemTrayIcon.ActivationReason.DoubleClick else None)
@@ -1145,7 +1163,7 @@ class MainWindow(QMainWindow):
             lbl = QLabel(f"{group.get('emoji','📁')}  {group.get('name','分类')}")
             lbl.setStyleSheet(
                 f"font-size:12px;font-weight:bold;color:{lbl_color};background:transparent;")
-            cnt = QLabel(f"{len(group_tasks)} 个")
+            cnt = QLabel(_tr("item_count", count=len(group_tasks)))
             cnt.setStyleSheet(f"font-size:11px;color:{C['text2']};background:transparent;")
             hdr.addWidget(lbl)
             hdr.addWidget(cnt)
@@ -1179,7 +1197,7 @@ class MainWindow(QMainWindow):
                     f"border:2px dashed {C['border']};"
                     f"border-radius:10px;"
                 )
-                hint_lbl = QLabel("将任务拖到此处")
+                hint_lbl = QLabel(_tr("drag_here"))
                 hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 hint_lbl.setStyleSheet(
                     f"color:{C['text2']};font-size:12px;background:transparent;border:none;")
@@ -1209,7 +1227,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
 
         # 移动到分类子菜单
-        move_menu = menu.addMenu("📂  移动到分类")
+        move_menu = menu.addMenu(_tr("move_to_category"))
         current_gid = task.get("group_id", "default")
         for g in sorted(self.groups, key=lambda x: x.get("order", 99)):
             act = move_menu.addAction(f"{g.get('emoji','📁')}  {g['name']}")
@@ -1218,22 +1236,24 @@ class MainWindow(QMainWindow):
             act.setData(g["id"])
 
         # 设置图标子菜单（总是显示）
-        icon_menu = menu.addMenu("🖼  设置图标")
+        icon_menu = menu.addMenu(_tr("set_icon"))
         for label, key in BUILTIN_ICONS:
             a = icon_menu.addAction(label)
             a.setData(f"builtin:{key}")
         icon_menu.addSeparator()
-        act_local_icon = icon_menu.addAction("📁  从本地文件选择...")
+        act_local_icon = icon_menu.addAction(_tr("choose_local_icon"))
         act_local_icon.setData("local")
-        act_clear_icon = icon_menu.addAction("✕  清除自定义图标")
+        act_clear_icon = icon_menu.addAction(_tr("clear_custom_icon"))
         act_clear_icon.setData("clear")
 
         menu.addSeparator()
-        act_run   = menu.addAction("▶  立即执行")
-        act_admin = menu.addAction("🛡  以管理员身份运行")
-        act_edit  = menu.addAction("✏  编辑")
+        act_open_folder = menu.addAction(_tr("open_folder"))
+        act_open_folder.setEnabled(self._task_open_folder(task) is not None)
+        act_run   = menu.addAction(_tr("run_now"))
+        act_admin = menu.addAction(_tr("run_as_admin"))
+        act_edit  = menu.addAction(_tr("edit"))
         menu.addSeparator()
-        act_del   = menu.addAction("🗑  删除")
+        act_del   = menu.addAction(_tr("delete"))
 
         chosen = menu.exec(global_pos)
         if chosen is None:
@@ -1258,6 +1278,8 @@ class MainWindow(QMainWindow):
                 task["custom_icon"] = f"builtin:{key}"
                 save_tasks(self.tasks)
                 self._refresh_card(task)
+        elif chosen == act_open_folder:
+            self._open_task_folder(task)
         elif chosen == act_run:
             self._select(task["id"])
             self._run_task()
@@ -1270,6 +1292,39 @@ class MainWindow(QMainWindow):
         elif chosen == act_del:
             self._select(task["id"])
             self._delete_task()
+
+    def _task_open_folder(self, task: Dict) -> Optional[str]:
+        """从任务 action 中找第一个可打开的本地文件夹。"""
+        for action in task.get("actions", []):
+            atype = action.get("type", "")
+            candidates = []
+            if atype == "open_software":
+                candidates.append(action.get("exe_path", ""))
+            elif atype == "ue_project":
+                candidates.append(action.get("uproject_path", ""))
+                candidates.append(action.get("engine_path", ""))
+            elif atype == "open_path":
+                candidates.append(action.get("path", ""))
+            elif atype == "run_command":
+                candidates.append(action.get("working_dir", ""))
+
+            for raw in candidates:
+                path = (raw or "").strip().strip('"')
+                if not path:
+                    continue
+                if not os.path.exists(path):
+                    continue
+                folder = path if os.path.isdir(path) else os.path.dirname(path)
+                if folder and os.path.isdir(folder):
+                    return folder
+        return None
+
+    def _open_task_folder(self, task: Dict):
+        folder = self._task_open_folder(task)
+        if not folder:
+            QMessageBox.information(self, _tr("open_folder_failed_title"), _tr("open_folder_failed"))
+            return
+        os.startfile(folder)
 
     def _pick_local_icon(self, task: Dict):
         """弹出文件选择器选择本地图标"""
@@ -1375,14 +1430,28 @@ class MainWindow(QMainWindow):
     def _show_theme_menu(self):
         menu = QMenu(self)
         for key, theme in THEMES.items():
-            action = menu.addAction(f"{theme['emoji']}  {theme['name']}")
+            name = _theme_name(key, theme)
+            action = menu.addAction(f"{theme['emoji']}  {name}")
             action.setData(key)
             if key == _current_theme_key:
-                action.setText(f"{theme['emoji']}  {theme['name']}  ✓")
+                action.setText(f"{theme['emoji']}  {name}  ✓")
         chosen = menu.exec(self.btn_theme.mapToGlobal(
             QPoint(0, self.btn_theme.height() + 4)))
         if chosen and chosen.data():
             self._apply_theme(chosen.data())
+
+    def _show_language_menu(self):
+        menu = QMenu(self)
+        current = i18n.get_language()
+        for label, lang in i18n.LANGUAGE_OPTIONS:
+            action = menu.addAction(_tr(f"lang_{lang}"))
+            action.setData(lang)
+            if lang == current:
+                action.setText(f"{_tr(f'lang_{lang}')}  ✓")
+        chosen = menu.exec(self.btn_language.mapToGlobal(
+            QPoint(0, self.btn_language.height() + 4)))
+        if chosen and chosen.data():
+            self._apply_language(chosen.data())
 
     def _apply_theme(self, theme_key: str):
         set_theme(theme_key)
@@ -1393,6 +1462,35 @@ class MainWindow(QMainWindow):
         # 重新刷新所有内联样式
         self._refresh_all_dynamic_styles()
         self._refresh_grid()
+
+    def _apply_language(self, lang: str):
+        i18n.set_language(lang)
+        self.settings["language"] = lang
+        save_settings(self.settings)
+        self._retranslate_ui()
+        self._refresh_grid()
+        self._update_detail(self._get(self.selected_task_id))
+
+    def _retranslate_ui(self):
+        self.search_box.setPlaceholderText(_tr("search_placeholder"))
+        self.btn_theme.setToolTip(_tr("theme_tooltip"))
+        self.btn_language.setToolTip(_tr("language_tooltip"))
+        self.btn_win_min.setToolTip(_tr("minimize"))
+        self.btn_win_close.setToolTip(_tr("close_to_tray"))
+        self.sec_label.setText(_tr("my_tasks"))
+        self.btn_add.setText(_tr("new"))
+        self.btn_manage_groups.setText(_tr("categories"))
+        self.btn_run.setText(_tr("run_now") if self.btn_run.isEnabled() else _tr("run"))
+        self.btn_edit2.setText(_tr("edit"))
+        self.btn_log_toggle.setText(_tr("log_expanded") if self._log_visible else _tr("log"))
+        self.log_title.setText(_tr("execution_log"))
+        self.btn_ai_diagnose.setText(_tr("ai_diagnose"))
+        self.btn_ai_diagnose.setToolTip(_tr("ai_diagnose_tip"))
+        self.btn_ai_settings.setToolTip(_tr("ai_settings_tip"))
+        self.btn_clear.setText(_tr("clear"))
+        self.log_view.setPlaceholderText(_tr("log_placeholder"))
+        if self.status_lbl.text() in ("就绪", "Ready"):
+            self.status_lbl.setText(_tr("status_ready"))
 
     def _refresh_all_dynamic_styles(self):
         """刷新所有用内联 setStyleSheet 写死颜色的组件"""
@@ -1512,7 +1610,7 @@ class MainWindow(QMainWindow):
         """展开 / 折叠日志区"""
         self._log_visible = checked
         self.log_container.setVisible(checked)
-        self.btn_log_toggle.setText("📋  日志 ▲" if checked else "📋  日志")
+        self.btn_log_toggle.setText(_tr("log_expanded") if checked else _tr("log"))
         # 展开时把底部空间让给日志（上下约 4:6，日志占更多）
         if hasattr(self, "splitter"):
             total = max(self.splitter.height(), 600)
@@ -1526,15 +1624,15 @@ class MainWindow(QMainWindow):
         self.btn_run.setEnabled(has)
         self.btn_edit2.setEnabled(has)
         if not task:
-            self.detail_name.setText("← 选择一个任务")
+            self.detail_name.setText(_tr("select_task"))
             self.detail_steps.setText("")
             return
 
-        suffix = "" if task.get("enabled", True) else "  · 已禁用"
+        suffix = "" if task.get("enabled", True) else _tr("disabled_suffix")
         self.detail_name.setText(task.get("name", "") + suffix)
 
-        type_map = {"open_software":"启动程序","open_path":"打开路径",
-                    "run_command":"执行命令","p4_sync":"P4同步","ue_project":"UE项目"}
+        type_map = {"open_software": _tr("type_open_software"), "open_path": _tr("type_open_path"),
+                    "run_command": _tr("type_run_command"), "p4_sync": _tr("type_p4_sync"), "ue_project": _tr("type_ue_project")}
         actions = task.get("actions", [])
         if actions:
             steps = [type_map.get(a.get("type",""), a.get("type","")) +
@@ -1542,22 +1640,22 @@ class MainWindow(QMainWindow):
                      for a in actions]
             txt = "  →  ".join(steps)
         else:
-            txt = "暂未配置操作"
+            txt = _tr("no_actions")
 
         sched = task.get("schedule")
         if sched:
             nr = self.scheduler.get_next_run(task["id"])
-            txt += f"   ·   ⏰ {('下次 '+nr) if nr else '已定时'}"
+            txt += f"   ·   ⏰ {_tr('next_run', time=nr) if nr else _tr('scheduled')}"
         lr = task.get("last_run", "")
         if lr:
             result = task.get("last_result", "")
             dot = "🟢" if result == "成功" else "🟡"
-            txt += f"   ·   {dot} 上次 {lr}"
+            txt += f"   ·   {dot} {_tr('last_run', time=lr)}"
         self.detail_steps.setText(txt)
 
     # ── 任务操作 ──
     def _new_task(self):
-        task = new_task("新任务")
+        task = new_task(_tr("task_new_title"))
         dlg = TaskEditorDialog(task, parent=self, is_new=True)
         if dlg.exec():
             self.tasks.append(task)
@@ -1586,8 +1684,8 @@ class MainWindow(QMainWindow):
         msg = QMessageBox(self)
         msg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         msg.setStyleSheet(build_style(C))
-        msg.setWindowTitle("确认删除")
-        msg.setText(f"确定删除「{task.get('name')}」？")
+        msg.setWindowTitle(_tr("confirm_delete_title"))
+        msg.setText(_tr("confirm_delete_task", name=task.get("name")))
         msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         msg.setDefaultButton(QMessageBox.StandardButton.No)
         if msg.exec() == QMessageBox.StandardButton.Yes:
@@ -1602,7 +1700,7 @@ class MainWindow(QMainWindow):
         task = self._get(self.selected_task_id)
         if not task: return
         self.btn_run.setEnabled(False)
-        self.btn_run.setText("执行中...")
+        self.btn_run.setText(_tr("running"))
         self.status_lbl.setText(f"⚙  {task.get('name')}")
 
         def done(ok, msg):
@@ -1618,7 +1716,7 @@ class MainWindow(QMainWindow):
         """弹窗配置 AI 诊断（Base URL / API Key / Model）"""
         cfg = ai_diagnose.load_ai_config()
         dlg = QDialog(self)
-        dlg.setWindowTitle("AI 诊断设置")
+        dlg.setWindowTitle(_tr("ai_settings_title"))
         dlg.setMinimumWidth(460)
         vl = QVBoxLayout(dlg)
         vl.setContentsMargins(16, 16, 16, 12)
@@ -1645,7 +1743,7 @@ class MainWindow(QMainWindow):
 
         ed_timeout = QLineEdit(str(cfg.get("timeout", 60)))
         ed_timeout.setPlaceholderText("60")
-        add_row("超时（秒）", ed_timeout)
+        add_row(_tr("timeout_seconds"), ed_timeout)
 
         hint = QLabel(
             "配置存于 %APPDATA%\\AutoTasker\\ai_config.json，仅保存在本机。\n"
@@ -1676,17 +1774,17 @@ class MainWindow(QMainWindow):
         cfg["timeout"] = max(5, timeout)
         try:
             ai_diagnose.save_ai_config(cfg)
-            self._append_log('<span style="color:#8fd;">🤖 AI 诊断设置已保存</span>')
+            self._append_log(f'<span style="color:#8fd;">{_tr("ai_settings_saved")}</span>')
         except Exception as e:
-            QMessageBox.warning(self, "保存失败", f"写入配置失败：{e}")
+            QMessageBox.warning(self, _tr("save_failed"), _tr("write_config_failed", error=e))
 
     def _ai_diagnose_log(self):
         """把最近一次失败上下文发给 AI，结果追加到日志"""
         # 1. 检查配置
         if not ai_diagnose.is_configured():
             ret = QMessageBox.question(
-                self, "尚未配置 AI",
-                "还没有配置 AI 诊断。是否现在打开设置？",
+                self, _tr("ai_not_configured_title"),
+                _tr("ai_not_configured_msg"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if ret == QMessageBox.StandardButton.Yes:
@@ -1699,7 +1797,7 @@ class MainWindow(QMainWindow):
             # 没有失败记录：退化为把当前日志尾部喂过去做自由问答
             fallback_log = self.log_view.toPlainText()[-4000:]
             if not fallback_log.strip():
-                QMessageBox.information(self, "AI 诊断", "暂无可分析的日志。请先执行一次任务。")
+                QMessageBox.information(self, _tr("ai_diagnose"), _tr("ai_no_log"))
                 return
             step_label = "（无失败记录，分析当前日志）"
             command = None
@@ -1722,9 +1820,9 @@ class MainWindow(QMainWindow):
         if not self.log_container.isVisible():
             self.btn_log_toggle.setChecked(True)
             self._toggle_log()
-        self._append_log('<span style="color:#8fd;">🤖 正在请求 AI 诊断，请稍候...</span>')
+        self._append_log(f'<span style="color:#8fd;">{_tr("ai_requesting")}</span>')
         self.btn_ai_diagnose.setEnabled(False)
-        self.btn_ai_diagnose.setText("诊断中...")
+        self.btn_ai_diagnose.setText(_tr("ai_diagnosing"))
 
         # 4. 后台线程调用，避免阻塞 UI
         import threading
@@ -1782,7 +1880,7 @@ class MainWindow(QMainWindow):
         if not task:
             return
         self.btn_run.setEnabled(False)
-        self.btn_run.setText("执行中...")
+        self.btn_run.setText(_tr("running"))
         self.status_lbl.setText(f"🛡  {task.get('name')}")
 
         def done(ok, msg):
@@ -1795,8 +1893,8 @@ class MainWindow(QMainWindow):
 
     def _run_done(self):
         self.btn_run.setEnabled(True)
-        self.btn_run.setText("▶  立即执行")
-        self.status_lbl.setText("就绪")
+        self.btn_run.setText(_tr("run_now"))
+        self.status_lbl.setText(_tr("status_ready"))
         task = self._get(self.selected_task_id)
         self._update_detail(task)
         if task and task["id"] in self._cards:
@@ -1857,7 +1955,7 @@ class MainWindow(QMainWindow):
     def _render_ai_block(self, text: str, ok: bool):
         """把 AI 诊断结果作为一个醒目块追加到日志。"""
         import html
-        header = "🤖 AI 诊断结果" if ok else "🤖 AI 诊断失败"
+        header = _tr("ai_result_header") if ok else _tr("ai_error_header")
         header_color = "#8b5cf6" if ok else "#ef4444"
         # 简单保留换行，转义 HTML；对 markdown 的 ** 做个加粗替换
         safe = html.escape(text)
@@ -1879,7 +1977,7 @@ class MainWindow(QMainWindow):
     def _ai_diagnose_reset_btn(self):
         try:
             self.btn_ai_diagnose.setEnabled(True)
-            self.btn_ai_diagnose.setText("🤖 AI 诊断")
+            self.btn_ai_diagnose.setText(_tr("ai_diagnose"))
         except Exception:
             pass
 
@@ -1894,7 +1992,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, e):
         if self.settings.get("minimize_to_tray", True):
             e.ignore(); self.hide()
-            self.tray.showMessage("AutoTasker", "已最小化到托盘，双击重新打开。",
+            self.tray.showMessage("AutoTasker", _tr("minimized_to_tray"),
                                   QSystemTrayIcon.MessageIcon.Information, 2000)
         else:
             self.scheduler.shutdown(); e.accept()
@@ -2019,7 +2117,7 @@ class GroupManagerDialog(QDialog):
         tb_l = QHBoxLayout(title_bar)
         tb_l.setContentsMargins(16, 0, 8, 0)
         tb_l.setSpacing(10)
-        title_lbl = QLabel("管理分类")
+        title_lbl = QLabel(_tr("manage_groups"))
         title_lbl.setStyleSheet(
             f"font-size:14px;font-weight:bold;color:{c['text']};background:transparent;")
         btn_close = QPushButton("✕")
@@ -2038,7 +2136,7 @@ class GroupManagerDialog(QDialog):
         body_l.setContentsMargins(16, 12, 16, 14)
         body_l.setSpacing(10)
 
-        hint = QLabel("拖拽列表项可调整排序 · 双击重命名")
+        hint = QLabel(_tr("groups_hint"))
         hint.setStyleSheet(f"color:{c['text2']};font-size:11px;background:transparent;")
         body_l.addWidget(hint)
 
@@ -2050,7 +2148,7 @@ class GroupManagerDialog(QDialog):
 
         # 内联编辑行（替代 QInputDialog）
         self.inline_edit = QLineEdit()
-        self.inline_edit.setPlaceholderText("输入名称后按回车确认…")
+        self.inline_edit.setPlaceholderText(_tr("group_name_placeholder"))
         self.inline_edit.setFixedHeight(32)
         self.inline_edit.setVisible(False)
         self._inline_mode = None  # "add" or "rename"
@@ -2075,14 +2173,14 @@ class GroupManagerDialog(QDialog):
 
         # 操作按钮
         btn_row = QHBoxLayout()
-        btn_add = QPushButton("＋  新增分类")
+        btn_add = QPushButton(_tr("add_group"))
         btn_add.setObjectName("btn_add_grp")
         btn_add.clicked.connect(self._start_add)
-        btn_rename = QPushButton("✏  重命名")
+        btn_rename = QPushButton(_tr("rename"))
         btn_rename.clicked.connect(self._start_rename)
-        btn_emoji = QPushButton("😀  图标")
+        btn_emoji = QPushButton(_tr("icon"))
         btn_emoji.clicked.connect(self._toggle_emoji)
-        btn_del = QPushButton("🗑  删除")
+        btn_del = QPushButton(_tr("delete"))
         btn_del.setObjectName("btn_del_grp")
         btn_del.clicked.connect(self._del_group)
         btn_row.addWidget(btn_add)
@@ -2095,9 +2193,9 @@ class GroupManagerDialog(QDialog):
         # 确认/取消
         ok_row = QHBoxLayout()
         ok_row.addStretch()
-        btn_cancel = QPushButton("取消")
+        btn_cancel = QPushButton(_tr("cancel"))
         btn_cancel.clicked.connect(self.reject)
-        btn_ok = QPushButton("确定")
+        btn_ok = QPushButton(_tr("ok"))
         btn_ok.setObjectName("btn_ok")
         btn_ok.clicked.connect(self._on_ok)
         ok_row.addWidget(btn_cancel)
@@ -2122,7 +2220,7 @@ class GroupManagerDialog(QDialog):
     def _start_add(self):
         self._inline_mode = "add"
         self.inline_edit.clear()
-        self.inline_edit.setPlaceholderText("新分类名称，按回车确认…")
+        self.inline_edit.setPlaceholderText(_tr("new_group_placeholder"))
         self.inline_edit.setVisible(True)
         self.emoji_row.setVisible(False)
         self.inline_edit.setFocus()
@@ -2137,7 +2235,7 @@ class GroupManagerDialog(QDialog):
             return
         self._inline_mode = "rename"
         self.inline_edit.setText(g["name"])
-        self.inline_edit.setPlaceholderText("新名称，按回车确认…")
+        self.inline_edit.setPlaceholderText(_tr("rename_placeholder"))
         self.inline_edit.setVisible(True)
         self.emoji_row.setVisible(False)
         self.inline_edit.setFocus()
